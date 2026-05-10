@@ -40,6 +40,12 @@ if(ENABLE_VERBOSE)
 else()
     set(ENABLE_VERBOSE_VALUE 0)
 endif ()
+option(ENABLE_BATT_LED "Blink Pico LED when DualSense battery is low (<=10%)" ON)
+if (ENABLE_BATT_LED)
+        set(ENABLE_BATT_LED_VALUE 1)
+else ()
+        set(ENABLE_BATT_LED_VALUE 0)
+endif ()
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -60,6 +66,10 @@ add_executable(ds5-bridge
         src/config.cpp
         src/cmd.cpp
 )
+
+if (ENABLE_BATT_LED)
+        target_sources(ds5-bridge PRIVATE src/battery_led.cpp)
+endif ()
 
 # Cockos WDLResampler
 add_library(wdl_resampler STATIC
@@ -88,7 +98,25 @@ target_compile_definitions(ds5-bridge PRIVATE
         PICO_STDIO_USB_ENABLE_RESET_VIA_BAUD_RATE=0
         PICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0
         ENABLE_VERBOSE=${ENABLE_VERBOSE_VALUE}
+        ENABLE_BATT_LED=${ENABLE_BATT_LED_VALUE}
 )
+
+option(ENABLE_WAKE_HID "Wake the Windows host on PS-button press" OFF)
+if(ENABLE_WAKE_HID)
+    target_compile_definitions(ds5-bridge PRIVATE
+            ENABLE_WAKE_HID
+    )
+    target_sources(ds5-bridge PRIVATE
+            src/wake.cpp
+    )
+endif()
+
+option(WAKE_DEBUG "Print wake-FSM transitions to UART (developer use)" OFF)
+if(WAKE_DEBUG)
+    target_compile_definitions(ds5-bridge PRIVATE
+            WAKE_DEBUG
+    )
+endif()
 
 pico_set_program_name(ds5-bridge "ds5-bridge")
 pico_set_program_version(ds5-bridge "0.5.3")

@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "resample.h"
 #include "audio.h"
+#include "wake.h"
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #include "hardware/watchdog.h"
@@ -17,6 +18,9 @@
 #endif
 #include "config.h"
 #include "cmd.h"
+#if ENABLE_BATT_LED
+#include "battery_led.h"
+#endif
 
 // Pico SDK speciifically for waiting on conditions
 #include "pico/critical_section.h"
@@ -84,21 +88,33 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
             set_headset(data[56] & 1);
         }
 
+        // Wake-on-PS must observe every BT input report regardless of polling
+        // mode: the wake feature has its own state to maintain (button-byte
+        // diff for edge detection) and short-circuiting it on non-2 polling
+        // modes silently breaks wake while the host is suspended.
+        wake_on_bt_input(data + 3, len - 3);
+
         if (get_config().polling_rate_mode != 2) {
             memcpy(interrupt_in_data, data + 3, 63);
+#if ENABLE_BATT_LED
+            battery_led_note_report();
+#endif
             return;
         }
 
         // We add the critical section here to avoid any race conditions when writing to the interrupt_in_data buffer,
-        // which is shared between the main loop and this callback. 
-        // The critical section ensures that only one thread can access the buffer at a time, 
-        // preventing data corruption and ensuring thread safety.   
+        // which is shared between the main loop and this callback.
+        // The critical section ensures that only one thread can access the buffer at a time,
+        // preventing data corruption and ensuring thread safety.
         // We also set the report_dirty flag to true to indicate that new data is available
         //  and needs to be sent in the next interrupt report.
         critical_section_enter_blocking(&report_cs);
         memcpy(interrupt_in_data, data + 3, 63);
         report_dirty = true;
         critical_section_exit(&report_cs);
+#if ENABLE_BATT_LED
+        battery_led_note_report();
+#endif
     }
 }
 
@@ -107,6 +123,15 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 // Return zero will cause the stack to STALL request
 uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer,
                                uint16_t reqlen) {
+#ifdef ENABLE_WAKE_HID
+    if (itf == 1) {
+        if (reqlen >= 8) {
+            memset(buffer, 0, 8);
+            return 8;
+        }
+        return 0;
+    }
+#endif
     (void) itf;
     (void) report_id;
     (void) report_type;
@@ -142,6 +167,12 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_reques
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer,
                            uint16_t bufsize) {
+#ifdef ENABLE_WAKE_HID
+    if (itf == 1) {
+        // Drop keyboard SET_REPORT (host LED state).
+        return;
+    }
+#endif
     (void) itf;
     (void) report_id;
     (void) report_type;
@@ -211,6 +242,10 @@ int main() {
     }
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
 
+#if ENABLE_BATT_LED
+    battery_led_init();
+#endif
+
 #if !ENABLE_SERIAL
     if (watchdog_caused_reboot()) {
         printf("Rebooted by Watchdog!\n");
@@ -230,6 +265,7 @@ int main() {
 
     // Initialize the critical section for the report buffer
     critical_section_init(&report_cs);
+    wake_init();
 
     config_load();
 
@@ -248,7 +284,11 @@ int main() {
 #endif
         cyw43_arch_poll();
         tud_task();
+        wake_task();
         audio_loop();
         interrupt_loop();
+#if ENABLE_BATT_LED
+        battery_led_tick();
+#endif
     }
 }

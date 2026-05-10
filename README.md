@@ -57,6 +57,12 @@ The Pico device will only be visible to the system after the controller is conne
 
 Some behaviors depend on reconnection cycles to take effect
 
+### Low-battery LED indicator
+
+When the connected DualSense reports its battery at or below 10% (and it is not charging), the Pico onboard LED switches from solid-on to a 1 Hz blink so you can see the warning at a glance. The LED returns to solid-on as soon as the controller is plugged in or its reported level rises again. The blink also fires when `disable_pico_led` is set — the warning is treated as critical and overrides the LED-off preference; the LED returns to its disabled (off) state once the battery recovers or the controller starts charging.
+
+To opt out at build time, configure with `-DENABLE_BATT_LED=OFF`. Default is ON.
+
 ## Known Issues
 
 - ⚠️ Audio may experience slight stuttering
@@ -81,6 +87,19 @@ To build the project from source:
 
 1. Update TinyUSB in the Pico SDK to the latest version
 2. Compile using standard Pico SDK toolchain
+
+## Wake-on-PS (optional)
+
+A `-DENABLE_WAKE_HID=ON` build adds a second HID interface (a boot keyboard) that injects an **F15** keypress when any controller button is pressed while the host is suspended, waking the PC from **S3 sleep**. F15 was chosen because it has no default Windows or app binding — a stray fire never inserts characters or triggers shortcuts.
+
+Scope: **S3 only.** Modern Standby (S0ix) is not supported. To check your machine, run `powercfg /a` — you need "Standby (S3)" listed under available sleep states.
+
+After flashing the wake build:
+
+1. Open Device Manager → the new **HID Keyboard Device** (and its parent **USB Composite Device**) → Properties → Power Management → tick **"Allow this device to wake the computer."**
+2. Verify with `powercfg /devicequery wake_armed`.
+3. Sleep the PC; press any button on the controller; the PC should wake within ~1 s.
+4. After a wake, `powercfg /lastwake` should attribute the wake to the HID Keyboard Device.
 
 ## Roadmap
 - Please check out [DS5Dongle plan](https://github.com/users/awalol/projects/5)
