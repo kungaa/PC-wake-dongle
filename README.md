@@ -59,7 +59,7 @@ Some behaviors depend on reconnection cycles to take effect
 
 ### Low-battery LED indicator
 
-When the connected DualSense reports its battery at or below 10% (and it is not charging), the Pico onboard LED switches from solid-on to a 1 Hz blink so you can see the warning at a glance. The LED returns to solid-on as soon as the controller is plugged in or its reported level rises again. The indicator respects the existing `disable_pico_led` setting (Speaker mute toggle).
+When the connected DualSense reports its battery at or below 10% (and it is not charging), the Pico onboard LED switches from solid-on to a 1 Hz blink so you can see the warning at a glance. The LED returns to solid-on as soon as the controller is plugged in or its reported level rises again. The blink also fires when `disable_pico_led` is set — the warning is treated as critical and overrides the LED-off preference; the LED returns to its disabled (off) state once the battery recovers or the controller starts charging.
 
 To opt out at build time, configure with `-DENABLE_BATT_LED=OFF`. Default is ON.
 

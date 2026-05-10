@@ -38,11 +38,6 @@ void battery_led_note_report(void) {
 }
 
 void battery_led_tick(void) {
-    if (get_config().disable_pico_led) {
-        blinking = false;
-        return;
-    }
-
     const uint64_t now = time_us_64();
     if (last_report_us == 0 || (now - last_report_us) >= REPORT_STALE_US) {
         // No fresh data — bt.cpp owns the LED while disconnected.
@@ -56,6 +51,7 @@ void battery_led_tick(void) {
     const bool low    = (st == POWER_STATE_DISCHARGING) && (pct <= THRESHOLD_LEVEL);
 
     if (low) {
+        // Critical warning: override disable_pico_led so the user always sees it.
         if (!blinking) {
             blinking = true;
             led_state = true;
@@ -70,8 +66,8 @@ void battery_led_tick(void) {
         }
     } else if (blinking) {
         blinking = false;
-        // We were blinking and are still receiving fresh reports => still connected.
-        // Restore the LED to the bt.cpp "connected = solid on" state.
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true);
+        // Battery recovered or now charging — restore steady-state LED per the user
+        // preference flag (LED off when disabled, otherwise the bt.cpp connected = on state).
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, !get_config().disable_pico_led);
     }
 }
