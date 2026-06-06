@@ -43,6 +43,11 @@ on:
         required: false
         type: boolean
         default: false
+      usbwake:
+        description: Enable USB Wake feature (-DENABLE_WAKE_HID=ON)
+        required: false
+        type: boolean
+        default: false
 
 env:
   PICO_SDK_REF: 2.2.0
