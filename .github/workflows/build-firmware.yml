@@ -195,7 +195,7 @@ jobs:
             -DENABLE_WAKE_HID=ON \
             "${VERSION_ARG[@]}"
           cmake --build build/picow --target ds5-bridge
-          cp build/picow/ds5-bridge.uf2 "artifacts/ds5-bridge-picow${{ inputs.asset_suffix }}.uf2"
+          cp build/picow/ds5-bridge.uf2 "artifacts/ds5-bridge-usbwake${{ inputs.asset_suffix }}.uf2"
 
 #      - name: Build no-batt-led firmware (compile check only)
 #        if: inputs.no_batt_led_check
@@ -241,6 +241,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: artifacts/ds5-bridge-picow${{ inputs.asset_suffix }}.uf2
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload USBWake UF2 artifact
+        if: inputs.usbwake
+        uses: actions/upload-artifact@v7
+        with:
+          path: artifacts/ds5-bridge-usbwake${{ inputs.asset_suffix }}.uf2
           archive: false
           if-no-files-found: error
 
