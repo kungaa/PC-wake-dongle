@@ -165,6 +165,7 @@ if(ENABLE_WAKE_HID)
     target_sources(ds5-bridge PRIVATE
             src/wake.cpp
             src/ps_shortcut.cpp
+            src/pin_entry.cpp
     )
 endif()
 
