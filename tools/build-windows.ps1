@@ -70,7 +70,7 @@ $ARM_URL      = "https://developer.arm.com/-/media/Files/downloads/gnu/$ARM_VER/
 # Portable native host compiler (WinLibs MinGW-w64 UCRT) for pioasm/picotool.
 $MINGW_URL    = 'https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-mingw-w64ucrt-12.0.0-r2.zip'
 
-$ToolsHome = Join-Path $env:USERPROFILE '.ds5-build'
+$ToolsHome = Join-Path $env:USERPROFILE 'Documents\.ds5-build'
 $SdkPath   = Join-Path $ToolsHome 'pico-sdk'
 $ArmRoot   = Join-Path $ToolsHome 'arm-gnu-toolchain'
 $ClonePath = Join-Path $ToolsHome 'DS5Dongle'
@@ -415,7 +415,7 @@ if (Test-Path $picoVscode) {
     Warn "PICO_SDK_PATH ($SdkPath) explicitly, which normally wins."
 }
 
-$useWinget = Initialize-PackageManager
+$useWinget = $false
 
 Ensure-Tool -Command 'git'    -WingetId 'Git.Git'           -WingetAvailable $useWinget -PortableInstall {
     Install-PortableArchiveTool -Name 'git' `
@@ -464,7 +464,7 @@ $cmakeArgs = @(
 )
 switch ($Variant) {
     'debug' { $cmakeArgs += @('-DENABLE_SERIAL=ON', '-DENABLE_VERBOSE=ON') }
-    'wake'  { $cmakeArgs += @('-DENABLE_WAKE_HID=ON') }
+    'wake'  { $cmakeArgs += @('-DENABLE_WAKE_HID=ON', '-DENABLE_BLE_WAKE=ON') }
 }
 
 Info "Configuring: cmake $($cmakeArgs -join ' ')"

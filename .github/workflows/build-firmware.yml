@@ -234,6 +234,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -DENABLE_WAKE_HID=ON \
+            -DENABLE_BLE_WAKE=ON \
             "${VERSION_ARG[@]}"
           cmake --build build/usbwake --target ds5-bridge
           cp build/usbwake/ds5-bridge.uf2 "artifacts/ds5-bridge-usbwake${{ inputs.asset_suffix }}.uf2"

@@ -18,6 +18,9 @@
 #include "config.h"
 #include "state_mgr.h"
 #include "wake.h"
+#if defined(ENABLE_BLE_WAKE) && defined(ENABLE_WAKE_HID)
+#include "ble_scan.h"
+#endif
 #include "pico/util/queue.h"
 #if ENABLE_BATT_LED
 #include "battery_led.h"
@@ -122,6 +125,9 @@ int bt_init() {
     hci_add_event_handler(&hci_event_callback_registration);
 
     hci_power_control(HCI_POWER_ON);
+#if defined(ENABLE_BLE_WAKE) && defined(ENABLE_WAKE_HID)
+    ble_scan_init();
+#endif
     return 0;
 }
 

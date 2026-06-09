@@ -13,6 +13,7 @@ void wake_on_bt_connect(void);
 void wake_on_bt_input(const uint8_t *hid_input, uint16_t len);
 void wake_on_bt_disconnect(void);
 void wake_task(void);
+extern volatile bool host_suspended;
 #else
 static inline void wake_init(void) {}
 static inline void wake_on_bt_connect(void) {}
