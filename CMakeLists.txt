@@ -167,6 +167,13 @@ if(ENABLE_WAKE_HID)
     )
 endif()
 
+option(ENABLE_BLE_WAKE "Enable BLE scanning to wake PC on Xbox controller power-on" OFF)
+if(ENABLE_BLE_WAKE)
+    target_compile_definitions(ds5-bridge PRIVATE ENABLE_BLE_WAKE)
+    target_sources(ds5-bridge PRIVATE src/ble_scan.cpp)
+    target_link_libraries(ds5-bridge pico_btstack_ble)
+endif()
+
 option(WAKE_DEBUG "Print wake-FSM transitions to UART (developer use)" OFF)
 if(WAKE_DEBUG)
     target_compile_definitions(ds5-bridge PRIVATE

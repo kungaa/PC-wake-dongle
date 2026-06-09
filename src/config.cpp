@@ -14,7 +14,7 @@
 #include "pico/cyw43_arch.h"
 
 constexpr uint32_t CONFIG_MAGIC = 0x66ccff00;
-constexpr uint16_t CONFIG_VERSION = 2;
+constexpr uint16_t CONFIG_VERSION = 3;
 constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
 static Config config{};
 bool is_dse = false;
@@ -99,6 +99,10 @@ void config_valid() {
     if (body->disable_usb_sn > 1) {
         body->disable_usb_sn = 0;
         printf("[Config] Warning: disable_usb_sn is invalid\n");
+    }
+    if (body->ble_wake_enabled > 1) {
+        body->ble_wake_enabled = 0;
+        printf("[Config] ble_wake_enabled is invalid\n");
     }
 }
 

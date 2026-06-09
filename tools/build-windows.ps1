@@ -464,7 +464,7 @@ $cmakeArgs = @(
 )
 switch ($Variant) {
     'debug' { $cmakeArgs += @('-DENABLE_SERIAL=ON', '-DENABLE_VERBOSE=ON') }
-    'wake'  { $cmakeArgs += @('-DENABLE_WAKE_HID=ON') }
+    'wake'  { $cmakeArgs += @('-DENABLE_WAKE_HID=ON', '-DENABLE_BLE_WAKE=ON') }
 }
 
 Info "Configuring: cmake $($cmakeArgs -join ' ')"
