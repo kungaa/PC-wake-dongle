@@ -197,7 +197,7 @@ jobs:
             -DDISABLE_SPEAKER_PROC=ON \
             "${VERSION_ARG[@]}"
           cmake --build build/nospeaker --target ds5-bridge
-          cp build/debug/ds5-bridge.uf2 "artifacts/ds5-bridge-no-oc-and-spk${{ inputs.asset_suffix }}.uf2"
+          cp build/nospeaker/ds5-bridge.uf2 "artifacts/ds5-bridge-no-oc-and-spk${{ inputs.asset_suffix }}.uf2"
 
       - name: Build Pico W firmware
         if: inputs.picow
