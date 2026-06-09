@@ -22,8 +22,10 @@ struct __attribute__((packed)) Config_body {
     uint8_t controller_mode; // 0: DS5, 1: DSE, 2: Auto
     uint8_t lock_volume; // 0: disable,1: enable
     uint8_t disable_usb_sn; // 0: disable,1: enable
-    uint8_t ble_wake_enabled; // 0: disabled, 1: enabled
-    uint8_t ble_wake_mac[6];  // target BLE device MAC, big-endian MSB first
+    uint8_t ble_wake_enabled;    // 0: disabled, 1: enabled
+    uint8_t ble_wake_mac[6];     // target BLE device MAC, big-endian MSB first
+    uint8_t ps_shortcut_enabled; // 0: disabled, 1: enabled (ENABLE_WAKE_HID only)
+                                 // tap PS → Win+G, hold PS 750ms → Win+Tab
 };
 
 struct __attribute__((packed)) Config {
