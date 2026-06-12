@@ -24,6 +24,10 @@
 #define LWIP_DNS                    0   // deliberately no DNS: never hijack host lookups
 #define LWIP_IGMP                   1   // mDNS joins a multicast group
 
+// Let ip4_input accept link-layer-addressed packets (src 0.0.0.0) destined
+// for UDP port 67: required for the DHCP *server* to see client DISCOVERs.
+#define LWIP_IP_ACCEPT_UDP_PORT(p) ((p) == PP_NTOHS(67))
+
 #define TCP_MSS                     1460
 #define TCP_WND                     (8 * TCP_MSS)
 #define TCP_SND_BUF                 (8 * TCP_MSS)

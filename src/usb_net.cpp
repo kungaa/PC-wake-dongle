@@ -51,7 +51,6 @@
 uint8_t tud_network_mac_address[6];
 
 static struct netif netif_data;
-static struct pbuf *received_frame;
 
 #define INIT_IP4(a, b, c, d) {PP_HTONL(LWIP_MAKEU32(a, b, c, d))}
 
@@ -99,13 +98,17 @@ static err_t netif_init_cb(struct netif *netif) {
     return ERR_OK;
 }
 
+// Process the frame inline (pattern from the TinyUSB 0.20 example): the NCM
+// driver delivers one datagram at a time and recv_renew re-arms delivery.
 extern "C" bool tud_network_recv_cb(const uint8_t *src, uint16_t size) {
-    if (received_frame) return false; // previous frame not consumed yet
     if (size) {
         struct pbuf *p = pbuf_alloc(PBUF_RAW, size, PBUF_POOL);
         if (!p) return false;
-        memcpy(p->payload, src, size);
-        received_frame = p;
+        pbuf_take(p, src, size);
+        if (netif_data.input(p, &netif_data) != ERR_OK) {
+            pbuf_free(p);
+        }
+        tud_network_recv_renew();
     }
     return true;
 }
@@ -117,10 +120,7 @@ extern "C" uint16_t tud_network_xmit_cb(uint8_t *dst, void *ref, uint16_t arg) {
 }
 
 extern "C" void tud_network_init_cb(void) {
-    if (received_frame) {
-        pbuf_free(received_frame);
-        received_frame = NULL;
-    }
+    // frames are processed inline in tud_network_recv_cb; nothing to reset
 }
 
 //--------------------------------------------------------------------+
@@ -336,7 +336,7 @@ void usb_net_init() {
     memcpy(netif_data.hwaddr, tud_network_mac_address, 6);
     netif_data.hwaddr[5] ^= 0x01; // device side must differ from host side
 
-    netif_add(&netif_data, &ipaddr, &netmask, &gateway, NULL, netif_init_cb, ip_input);
+    netif_add(&netif_data, &ipaddr, &netmask, &gateway, NULL, netif_init_cb, ethernet_input);
 #if LWIP_NETIF_HOSTNAME
     netif_set_hostname(&netif_data, "picowake");
 #endif
@@ -354,10 +354,5 @@ void usb_net_init() {
 }
 
 void usb_net_task() {
-    if (received_frame) {
-        ethernet_input(received_frame, &netif_data);
-        received_frame = NULL;
-        tud_network_recv_renew();
-    }
     sys_check_timeouts();
 }
