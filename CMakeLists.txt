@@ -1,4 +1,5 @@
-# Generated Cmake Pico project file
+# PC Wake Dongle: BLE-scan triggered USB remote wakeup (fake boot keyboard)
+# with an onboard config web UI served over a USB NCM network interface.
 
 cmake_minimum_required(VERSION 3.13)
 
@@ -24,197 +25,98 @@ if (EXISTS ${picoVscode})
 endif ()
 # ====================================================================================
 
-option(PICO_W_BUILD "Build for Rasberry Pi Pico W, audio is missing" OFF)
+option(PICO_W_BUILD "Build for Raspberry Pi Pico W (RP2040)" OFF)
 option(WAVESHARE_RP2350B_PLUS_W_BUILD "Build for Waveshare RP2350B-Plus-W (USB-C, 16MB flash, RM2 wireless)" OFF)
 
 if (PICO_W_BUILD AND WAVESHARE_RP2350B_PLUS_W_BUILD)
-        message(FATAL_ERROR "PICO_W_BUILD and WAVESHARE_RP2350B_PLUS_W_BUILD are mutually exclusive")
+    message(FATAL_ERROR "PICO_W_BUILD and WAVESHARE_RP2350B_PLUS_W_BUILD are mutually exclusive")
 endif ()
 
 if (PICO_W_BUILD)
-        set(PICO_BOARD pico_w CACHE STRING "Board type")
-        set(PICO_RP2350 OFF CACHE BOOL "Not using RP2350")
+    set(PICO_BOARD pico_w CACHE STRING "Board type")
+    set(PICO_RP2350 OFF CACHE BOOL "Not using RP2350")
 elseif (WAVESHARE_RP2350B_PLUS_W_BUILD)
-        set(PICO_BOARD waveshare_rp2350b_plus_w CACHE STRING "Board type")
-        # Waveshare board header is not in upstream pico-sdk; ship it here and
-        # tell the SDK to search this directory when resolving PICO_BOARD.
-        list(APPEND PICO_BOARD_HEADER_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/boards/headers")
+    set(PICO_BOARD waveshare_rp2350b_plus_w CACHE STRING "Board type")
+    # Waveshare board header is not in upstream pico-sdk; ship it here and
+    # tell the SDK to search this directory when resolving PICO_BOARD.
+    list(APPEND PICO_BOARD_HEADER_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/boards/headers")
 else ()
-        set(PICO_BOARD pico2_w CACHE STRING "Board type")
+    set(PICO_BOARD pico2_w CACHE STRING "Board type")
 endif ()
-
-# Diagnostic: confirm PICO_BOARD resolution actually applied. Build log will
-# show which board path was taken. Remove these once verified on hardware.
-message(STATUS "DS5Dongle build target -- PICO_BOARD=${PICO_BOARD}")
-message(STATUS "DS5Dongle build target -- PICO_W_BUILD=${PICO_W_BUILD}")
-message(STATUS "DS5Dongle build target -- WAVESHARE_RP2350B_PLUS_W_BUILD=${WAVESHARE_RP2350B_PLUS_W_BUILD}")
-message(STATUS "DS5Dongle build target -- PICO_BOARD_HEADER_DIRS=${PICO_BOARD_HEADER_DIRS}")
-#set(PICO_CYW43_SUPPORTED 1)
-#set(PICO_CYW43_ARCH_THREADSAFE_BACKGROUND 1)
 
 option(ENABLE_SERIAL "Enable USB CDC serial printf output" OFF)
 if (ENABLE_SERIAL)
-        set(ENABLE_SERIAL_VALUE 1)
+    set(ENABLE_SERIAL_VALUE 1)
 else ()
-        set(ENABLE_SERIAL_VALUE 0)
+    set(ENABLE_SERIAL_VALUE 0)
 endif ()
 option(ENABLE_VERBOSE "Enable Log Verbose" OFF)
-if(ENABLE_VERBOSE)
+if (ENABLE_VERBOSE)
     set(ENABLE_VERBOSE_VALUE 1)
-else()
+else ()
     set(ENABLE_VERBOSE_VALUE 0)
 endif ()
-option(ENABLE_BATT_LED "Blink Pico LED when DualSense battery is low (<=10%)" ON)
-if (ENABLE_BATT_LED)
-        set(ENABLE_BATT_LED_VALUE 1)
-else ()
-        set(ENABLE_BATT_LED_VALUE 0)
-endif ()
-option(DISABLE_SPEAKER_PROC "Disable Speaker in controller" OFF)
-if (DISABLE_SPEAKER_PROC)
-        set(DISABLE_SPEAKER_PROC_VALUE 1)
-else ()
-        set(DISABLE_SPEAKER_PROC_VALUE 0)
-endif ()
-option(PICO_W_BUILD "Build for Rasberry Pi Pico W, audio is missing" OFF)
-if (PICO_W_BUILD)
-        set(CYW43_PIO_CLOCK_DIV_VALUE 3)
-        set(SYS_CLOCK_KHZ_VALUE 200000)
-        set(DISABLE_SPEAKER_PROC_VALUE 1)
-else ()
-        if(DISABLE_SPEAKER_PROC_VALUE)
-            set(CYW43_PIO_CLOCK_DIV_VALUE 2)
-            set(SYS_CLOCK_KHZ_VALUE 150000)
-        else ()
-            set(CYW43_PIO_CLOCK_DIV_VALUE 5)
-            set(SYS_CLOCK_KHZ_VALUE 320000)
-        endif ()
-endif ()
-
-
+option(WAKE_DEBUG "Print wake-FSM transitions to UART (developer use)" OFF)
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(ds5-bridge C CXX ASM)
+project(pc-wake-dongle C CXX ASM)
 
-# Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Add executable. Default name is the project name, version 0.1
-
-add_executable(ds5-bridge
-        src/usb_descriptors.cpp
+add_executable(pc-wake-dongle
         src/main.cpp
-        src/usb.cpp
-        src/audio.cpp
-        src/bt.cpp
+        src/wake.cpp
+        src/ble.cpp
         src/config.cpp
-        src/cmd.cpp
-        src/state_mgr.cpp
+        src/usb_descriptors.cpp
+        src/usb_net.cpp
+        # TinyUSB's tiny DHCP server, used to hand the host an address on the
+        # USB NCM link.
+        ${PICO_TINYUSB_PATH}/lib/networking/dhserver.c
 )
 
-if (ENABLE_BATT_LED)
-        target_sources(ds5-bridge PRIVATE src/battery_led.cpp)
-endif ()
-
-# Cockos WDLResampler
-add_library(wdl_resampler STATIC
-        lib/WDL/WDL/resample.cpp
-)
-target_include_directories(wdl_resampler PUBLIC
-        lib/WDL/WDL
+target_include_directories(pc-wake-dongle PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${PICO_TINYUSB_PATH}/lib/networking
 )
 
-# Opus
-#set(OPUS_FIXED_POINT ON)
-add_subdirectory(lib/opus)
-
-target_compile_options(wdl_resampler PRIVATE -fsigned-char)
-target_compile_options(ds5-bridge PRIVATE -fsigned-char)
-target_compile_definitions(wdl_resampler PRIVATE
-        WDL_RESAMPLE_TYPE=float
-)
-if(${SYS_CLOCK_KHZ_VALUE} GREATER 266000)
-    set(PICO_FLASH_SPI_CLKDIV 4)
-else()
-    set(PICO_FLASH_SPI_CLKDIV 2)
-endif()
-target_compile_definitions(bs2_default PRIVATE PICO_FLASH_SPI_CLKDIV=${PICO_FLASH_SPI_CLKDIV})
-target_compile_definitions(ds5-bridge PRIVATE PICO_EMBED_XIP_SETUP=1)
-target_compile_definitions(ds5-bridge PRIVATE
+target_compile_definitions(pc-wake-dongle PRIVATE
+        # lwIP runs over the USB NCM interface only; the CYW43 is BT-only.
         CYW43_LWIP=0
         ENABLE_SERIAL=${ENABLE_SERIAL_VALUE}
-        PICO_FLASH_ASSUME_CORE1_SAFE=1
-        WDL_RESAMPLE_TYPE=float
-        CYW43_PIO_CLOCK_DIV_INT=${CYW43_PIO_CLOCK_DIV_VALUE}
+        ENABLE_VERBOSE=${ENABLE_VERBOSE_VALUE}
         PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0
         PICO_STDIO_USB_ENABLE_RESET_VIA_BAUD_RATE=0
         PICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0
-        ENABLE_VERBOSE=${ENABLE_VERBOSE_VALUE}
-        ENABLE_BATT_LED=${ENABLE_BATT_LED_VALUE}
-        SYS_CLOCK_KHZ=${SYS_CLOCK_KHZ_VALUE}
-        DISABLE_SPEAKER_PROC=${DISABLE_SPEAKER_PROC_VALUE}
 )
 
-option(ENABLE_WAKE_HID "Wake the Windows host on PS-button press" OFF)
-if(ENABLE_WAKE_HID)
-    target_compile_definitions(ds5-bridge PRIVATE
-            ENABLE_WAKE_HID
-    )
-    target_sources(ds5-bridge PRIVATE
-            src/wake.cpp
-    )
-endif()
-
-option(ENABLE_BLE_WAKE "Enable BLE scanning to wake PC on Xbox controller power-on" OFF)
-if(ENABLE_BLE_WAKE)
-    target_compile_definitions(ds5-bridge PRIVATE ENABLE_BLE_WAKE)
-    target_sources(ds5-bridge PRIVATE src/ble_scan.cpp)
-    target_link_libraries(ds5-bridge pico_btstack_ble)
-endif()
-
-option(WAKE_DEBUG "Print wake-FSM transitions to UART (developer use)" OFF)
-if(WAKE_DEBUG)
-    target_compile_definitions(ds5-bridge PRIVATE
-            WAKE_DEBUG
-    )
-endif()
+if (WAKE_DEBUG)
+    target_compile_definitions(pc-wake-dongle PRIVATE WAKE_DEBUG)
+endif ()
 
 set(VERSION "dev" CACHE STRING "Program version string")
 
-pico_set_program_name(ds5-bridge "ds5-bridge")
-pico_set_program_version(ds5-bridge "${VERSION}")
+pico_set_program_name(pc-wake-dongle "pc-wake-dongle")
+pico_set_program_version(pc-wake-dongle "${VERSION}")
 
-# Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(ds5-bridge 1)
-pico_enable_stdio_usb(ds5-bridge ${ENABLE_SERIAL_VALUE})
+pico_enable_stdio_uart(pc-wake-dongle 1)
+pico_enable_stdio_usb(pc-wake-dongle ${ENABLE_SERIAL_VALUE})
 
-# Add the standard include files to the build
-#target_include_directories(ds5-bridge PRIVATE
-#        ${CMAKE_CURRENT_LIST_DIR}
-#)
-
-target_include_directories(${PROJECT_NAME} PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-# Add any user requested libraries
-target_link_libraries(ds5-bridge
+target_link_libraries(pc-wake-dongle
         pico_stdlib
-        pico_multicore
+        pico_unique_id
         hardware_watchdog
-        hardware_timer
         hardware_flash
-        pico_btstack_classic
-#        pico_cyw43_arch_threadsafe_background
         pico_cyw43_arch_poll
+        pico_btstack_ble
         pico_btstack_cyw43
+        pico_lwip_nosys
+        pico_lwip_http
+        pico_lwip_mdns
         tinyusb_device
         tinyusb_board
-        wdl_resampler
-        opus
 )
 
-pico_add_extra_outputs(ds5-bridge)
-
+pico_add_extra_outputs(pc-wake-dongle)

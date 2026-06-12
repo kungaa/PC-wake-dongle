@@ -1,9 +1,9 @@
 name: Build firmware (reusable)
 
-# Reusable build used by build.yml, release.yml and daily-upstream-release.yml.
-# Always builds the standard and debug UF2s for a given ref; optionally also
-# the Pico W UF2 and a no-batt-led compile check. When `upload_tag` is set the
-# built UF2s are attached to that GitHub Release.
+# Reusable build used by build.yml and release.yml. Builds the UF2 for every
+# supported board (Pico 2 W, Pico W, Waveshare RP2350B-Plus-W) plus a debug
+# (USB serial + wake tracing) build. When `upload_tag` is set the built UF2s
+# are attached to that GitHub Release.
 
 on:
   workflow_call:
@@ -33,26 +33,6 @@ on:
         required: false
         type: string
         default: ""
-      picow:
-        description: Also build the Pico W UF2 (-DPICO_W_BUILD=ON)
-        required: false
-        type: boolean
-        default: false
-      waveshare:
-        description: Also build the Waveshare RP2350B-Plus-W UF2 (-DWAVESHARE_RP2350B_PLUS_W_BUILD=ON)
-        required: false
-        type: boolean
-        default: false
-      no_batt_led_check:
-        description: Also compile-check the no-batt-led config (-DENABLE_BATT_LED=OFF)
-        required: false
-        type: boolean
-        default: false
-      usbwake:
-        description: Enable USB Wake feature (-DENABLE_WAKE_HID=ON)
-        required: false
-        type: boolean
-        default: false
 
 env:
   PICO_SDK_REF: 2.2.0
@@ -80,7 +60,6 @@ jobs:
         with:
           repository: ${{ inputs.repo == '' && github.repository || inputs.repo }}
           ref: ${{ inputs.ref }}
-          submodules: recursive
 
       - name: Resolve firmware version
         env:
@@ -88,7 +67,7 @@ jobs:
         run: |
           v="$IN_VER"
           # A full 40-char commit SHA (build.yml passes github.sha) is
-          # shortened to 7 chars, matching the previous build.yml behaviour.
+          # shortened to 7 chars.
           if printf '%s' "$v" | grep -qE '^[0-9a-f]{40}$'; then
             v="${v:0:7}"
           fi
@@ -162,7 +141,7 @@ jobs:
           fi
           git -C "$PICO_SDK_PATH/lib/tinyusb" checkout --detach "$TINYUSB_REF"
 
-      - name: Build standard firmware
+      - name: Build Pico 2 W firmware (standard)
         run: |
           VERSION_ARG=()
           [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
@@ -170,37 +149,11 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             "${VERSION_ARG[@]}"
-          cmake --build build/standard --target ds5-bridge
+          cmake --build build/standard --target pc-wake-dongle
           mkdir -p artifacts
-          cp build/standard/ds5-bridge.uf2 "artifacts/ds5-bridge${{ inputs.asset_suffix }}.uf2"
-
-      - name: Build Debug firmware
-        run: |
-          VERSION_ARG=()
-          [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
-          cmake -S . -B build/debug -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DPICO_SDK_PATH="$PICO_SDK_PATH" \
-            -DENABLE_SERIAL=ON \
-            -DENABLE_VERBOSE=ON \
-            "${VERSION_ARG[@]}"
-          cmake --build build/debug --target ds5-bridge
-          cp build/debug/ds5-bridge.uf2 "artifacts/ds5-bridge-debug${{ inputs.asset_suffix }}.uf2"
-
-      - name: Build No Speaker firmware (no overclock)
-        run: |
-          VERSION_ARG=()
-          [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
-          cmake -S . -B build/nospeaker -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DPICO_SDK_PATH="$PICO_SDK_PATH" \
-            -DDISABLE_SPEAKER_PROC=ON \
-            "${VERSION_ARG[@]}"
-          cmake --build build/nospeaker --target ds5-bridge
-          cp build/nospeaker/ds5-bridge.uf2 "artifacts/ds5-bridge-no-oc-and-spk${{ inputs.asset_suffix }}.uf2"
+          cp build/standard/pc-wake-dongle.uf2 "artifacts/pc-wake-dongle${{ inputs.asset_suffix }}.uf2"
 
       - name: Build Pico W firmware
-        if: inputs.picow
         run: |
           VERSION_ARG=()
           [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
@@ -209,11 +162,10 @@ jobs:
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -DPICO_W_BUILD=ON \
             "${VERSION_ARG[@]}"
-          cmake --build build/picow --target ds5-bridge
-          cp build/picow/ds5-bridge.uf2 "artifacts/ds5-bridge-picow${{ inputs.asset_suffix }}.uf2"
+          cmake --build build/picow --target pc-wake-dongle
+          cp build/picow/pc-wake-dongle.uf2 "artifacts/pc-wake-dongle-picow${{ inputs.asset_suffix }}.uf2"
 
       - name: Build Waveshare RP2350B-Plus-W firmware
-        if: inputs.waveshare
         run: |
           VERSION_ARG=()
           [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
@@ -222,90 +174,55 @@ jobs:
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -DWAVESHARE_RP2350B_PLUS_W_BUILD=ON \
             "${VERSION_ARG[@]}"
-          cmake --build build/waveshare --target ds5-bridge
-          cp build/waveshare/ds5-bridge.uf2 "artifacts/ds5-bridge-waveshare${{ inputs.asset_suffix }}.uf2"
+          cmake --build build/waveshare --target pc-wake-dongle
+          cp build/waveshare/pc-wake-dongle.uf2 "artifacts/pc-wake-dongle-waveshare${{ inputs.asset_suffix }}.uf2"
 
-      - name: Build USB-Wake firmware
-        if: inputs.picow
+      - name: Build Debug firmware (USB serial + wake tracing, Pico 2 W)
         run: |
           VERSION_ARG=()
           [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
-          cmake -S . -B build/usbwake -G Ninja \
+          cmake -S . -B build/debug -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
-            -DENABLE_WAKE_HID=ON \
-            -DENABLE_BLE_WAKE=ON \
+            -DENABLE_SERIAL=ON \
+            -DENABLE_VERBOSE=ON \
+            -DWAKE_DEBUG=ON \
             "${VERSION_ARG[@]}"
-          cmake --build build/usbwake --target ds5-bridge
-          cp build/usbwake/ds5-bridge.uf2 "artifacts/ds5-bridge-usbwake${{ inputs.asset_suffix }}.uf2"
+          cmake --build build/debug --target pc-wake-dongle
+          cp build/debug/pc-wake-dongle.uf2 "artifacts/pc-wake-dongle-debug${{ inputs.asset_suffix }}.uf2"
 
-#      - name: Build no-batt-led firmware (compile check only)
-#        if: inputs.no_batt_led_check
-#        run: |
-#          VERSION_ARG=()
-#          [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
-#          cmake -S . -B build/no-batt-led -G Ninja \
-#            -DCMAKE_BUILD_TYPE=Release \
-#            -DPICO_SDK_PATH="$PICO_SDK_PATH" \
-#            -DENABLE_BATT_LED=OFF \
-#            "${VERSION_ARG[@]}"
-#          cmake --build build/no-batt-led --target ds5-bridge
-
-      # - name: Upload UF2 artifacts
-        # uses: actions/upload-artifact@v7
-        # with:
-          # name: ds5-bridge-uf2${{ inputs.asset_suffix }}
-          # path: artifacts/*.uf2
-          # if-no-files-found: error- name: Upload standard UF2 artifact
-
-      - uses: actions/upload-artifact@v7
+      - name: Upload standard UF2 artifact
+        uses: actions/upload-artifact@v7
         with:
-          path: artifacts/ds5-bridge${{ inputs.asset_suffix }}.uf2
+          path: artifacts/pc-wake-dongle${{ inputs.asset_suffix }}.uf2
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload Pico W UF2 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: artifacts/pc-wake-dongle-picow${{ inputs.asset_suffix }}.uf2
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload Waveshare UF2 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: artifacts/pc-wake-dongle-waveshare${{ inputs.asset_suffix }}.uf2
           archive: false
           if-no-files-found: error
 
       - name: Upload Debug UF2 artifact
         uses: actions/upload-artifact@v7
         with:
-          path: artifacts/ds5-bridge-debug${{ inputs.asset_suffix }}.uf2
-          archive: false
-          if-no-files-found: error
-
-      - name: Upload No Speaker firmware (no overclock)
-        uses: actions/upload-artifact@v7
-        with:
-          path: artifacts/ds5-bridge-no-oc-and-spk${{ inputs.asset_suffix }}.uf2
-          archive: false
-          if-no-files-found: error
-
-      - name: Upload PicoW UF2 artifact
-        if: inputs.picow
-        uses: actions/upload-artifact@v7
-        with:
-          path: artifacts/ds5-bridge-picow${{ inputs.asset_suffix }}.uf2
-          archive: false
-          if-no-files-found: error
-
-      - name: Upload Waveshare UF2 artifact
-        if: inputs.waveshare
-        uses: actions/upload-artifact@v7
-        with:
-          path: artifacts/ds5-bridge-waveshare${{ inputs.asset_suffix }}.uf2
-          archive: false
-          if-no-files-found: error
-
-      - name: Upload USBWake UF2 artifact
-        if: inputs.usbwake
-        uses: actions/upload-artifact@v7
-        with:
-          path: artifacts/ds5-bridge-usbwake${{ inputs.asset_suffix }}.uf2
+          path: artifacts/pc-wake-dongle-debug${{ inputs.asset_suffix }}.uf2
           archive: false
           if-no-files-found: error
 
       - name: Remove debug firmware before release upload
         if: inputs.upload_tag != ''
         run: |
-          rm -f "artifacts/ds5-bridge-debug${{ inputs.asset_suffix }}.uf2"
+          rm -f "artifacts/pc-wake-dongle-debug${{ inputs.asset_suffix }}.uf2"
 
       - name: Attach UF2s to release
         if: inputs.upload_tag != ''

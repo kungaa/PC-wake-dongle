@@ -1,30 +1,29 @@
 <#
 .SYNOPSIS
-    One-command builder for the Pico2W DualSense 5 Bridge firmware on Windows 11
+    One-command builder for the PC Wake Dongle firmware on Windows 11
     (no WSL required).
 
 .DESCRIPTION
     Installs every prerequisite (winget where possible, portable downloads as a
-    fallback), fetches the pinned Raspberry Pi Pico SDK + TinyUSB, initialises
-    this repo's submodules, then configures and builds the firmware with CMake +
-    Ninja. The resulting ds5-bridge.uf2 is copied next to this script and onto
-    your Desktop.
+    fallback), fetches the pinned Raspberry Pi Pico SDK + TinyUSB, then
+    configures and builds the firmware with CMake + Ninja. The resulting
+    pc-wake-dongle.uf2 is copied next to this script and onto your Desktop.
 
     The script is idempotent: re-running it skips anything already installed or
     downloaded.
 
 .PARAMETER Variant
-    standard (default) - normal firmware.
-    debug              - adds -DENABLE_SERIAL=ON -DENABLE_VERBOSE=ON.
-    wake               - adds -DENABLE_WAKE_HID=ON (Wake-on-PS build).
+    standard (default) - Pico 2 W firmware.
+    picow              - Pico W (RP2040) firmware (-DPICO_W_BUILD=ON).
+    waveshare          - Waveshare RP2350B-Plus-W (-DWAVESHARE_RP2350B_PLUS_W_BUILD=ON).
+    debug              - adds -DENABLE_SERIAL=ON -DENABLE_VERBOSE=ON -DWAKE_DEBUG=ON.
 
 .PARAMETER Clean
     Delete the variant's build directory before configuring.
 
 .PARAMETER Repo
     When run standalone (the script is not inside a checkout), the project
-    git URL to clone. Defaults to the upstream project. Override to build a
-    fork.
+    git URL to clone. Override to build a fork.
 
 .PARAMETER Ref
     Branch, tag or commit to build when cloned standalone. Empty = the
@@ -37,20 +36,17 @@
 
 .EXAMPLE
     # From inside a cloned repo:
-    powershell -ExecutionPolicy Bypass -File tools\build-windows.ps1 -Variant wake
-
-.EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\build-windows.ps1 -Repo https://github.com/youruser/DS5Dongle.git -Ref master
+    powershell -ExecutionPolicy Bypass -File tools\build-windows.ps1 -Variant debug
 #>
 
 [CmdletBinding()]
 param(
-    [ValidateSet('standard', 'debug', 'wake')]
+    [ValidateSet('standard', 'picow', 'waveshare', 'debug')]
     [string]$Variant = 'standard',
     [switch]$Clean,
     # Project to build when this script is run standalone (not from inside a
     # checkout). Override to build a fork.
-    [string]$Repo = 'https://github.com/awalol/DS5Dongle.git',
+    [string]$Repo = 'https://github.com/kungaa/PC-wake-dongle.git',
     # Branch/tag/SHA to build when cloned standalone. Empty = default branch.
     [string]$Ref = ''
 )
@@ -73,17 +69,17 @@ $MINGW_URL    = 'https://github.com/brechtsanders/winlibs_mingw/releases/downloa
 $ToolsHome = Join-Path $env:USERPROFILE '.ds5-build'
 $SdkPath   = Join-Path $ToolsHome 'pico-sdk'
 $ArmRoot   = Join-Path $ToolsHome 'arm-gnu-toolchain'
-$ClonePath = Join-Path $ToolsHome 'DS5Dongle'
+$ClonePath = Join-Path $ToolsHome 'PC-wake-dongle'
 # $RepoRoot is resolved at runtime (Resolve-RepoRoot) - either an existing
 # checkout this script sits in, or a fresh clone under $ToolsHome.
 $RepoRoot  = $null
 $GitExit   = 0     # last git exit code, set by Invoke-GitQuiet
 $PythonExe = $null # real Python 3 interpreter, set by Resolve-Python
 
-function Info  ($m) { Write-Host "[ds5] $m"            -ForegroundColor Cyan }
-function Ok    ($m) { Write-Host "[ds5] $m"            -ForegroundColor Green }
-function Warn  ($m) { Write-Host "[ds5] WARNING: $m"   -ForegroundColor Yellow }
-function Die   ($m) { Write-Host "[ds5] ERROR: $m"     -ForegroundColor Red; exit 1 }
+function Info  ($m) { Write-Host "[wake] $m"            -ForegroundColor Cyan }
+function Ok    ($m) { Write-Host "[wake] $m"            -ForegroundColor Green }
+function Warn  ($m) { Write-Host "[wake] WARNING: $m"   -ForegroundColor Yellow }
+function Die   ($m) { Write-Host "[wake] ERROR: $m"     -ForegroundColor Red; exit 1 }
 
 function Have ($cmd) { [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
@@ -274,7 +270,7 @@ function Ensure-PicoSdk {
 function Test-Ds5Checkout ($dir) {
     if (-not $dir) { return $false }
     $cml = Join-Path $dir 'CMakeLists.txt'
-    return (Test-Path $cml) -and (Select-String -Path $cml -Pattern 'ds5-bridge' -Quiet)
+    return (Test-Path $cml) -and (Select-String -Path $cml -Pattern 'pc-wake-dongle' -Quiet)
 }
 
 # Runs git so NOTHING reaches the pipeline: every stream is written to the
@@ -330,7 +326,7 @@ function Resolve-RepoRoot {
         }
         if (-not (Test-Path (Join-Path $ClonePath '.git'))) { Die "Failed to clone $Repo" }
     }
-    if (-not (Test-Ds5Checkout $ClonePath)) { Die "Clone at $ClonePath is not a DS5Dongle project." }
+    if (-not (Test-Ds5Checkout $ClonePath)) { Die "Clone at $ClonePath is not a PC-wake-dongle project." }
     $script:RepoRoot = $ClonePath
 }
 
@@ -401,7 +397,7 @@ function Resolve-Python {
 # ---------------------------------------------------------------------------- #
 #  Main                                                                        #
 # ---------------------------------------------------------------------------- #
-Info "DS5Dongle Windows builder (rev $SCRIPT_REV) - variant: $Variant"
+Info "PC Wake Dongle Windows builder (rev $SCRIPT_REV) - variant: $Variant"
 New-Item -ItemType Directory -Force -Path $ToolsHome | Out-Null
 Add-CommonToolPaths
 
@@ -440,14 +436,9 @@ Ensure-PicoSdk
 # --- Locate / fetch the project source --------------------------------------
 Resolve-RepoRoot   # sets $script:RepoRoot
 if (-not $RepoRoot -or -not (Test-Ds5Checkout $RepoRoot)) {
-    Die "Could not locate the DS5Dongle source (resolved: '$RepoRoot')."
+    Die "Could not locate the PC-wake-dongle source (resolved: '$RepoRoot')."
 }
 Ok "Project source: $RepoRoot"
-
-# --- Project submodules (lib/WDL, lib/opus per .gitmodules) -------------------
-Info 'Initialising project submodules (WDL, opus)...'
-Invoke-GitQuiet -C $RepoRoot submodule update --init --recursive
-if ($GitExit -ne 0) { Die 'Submodule init failed (lib/WDL, lib/opus).' }
 
 # --- Configure + build -------------------------------------------------------
 $buildDir = Join-Path $RepoRoot "build\$Variant"
@@ -463,23 +454,24 @@ $cmakeArgs = @(
     "-DPython3_EXECUTABLE=$($PythonExe -replace '\\','/')"
 )
 switch ($Variant) {
-    'debug' { $cmakeArgs += @('-DENABLE_SERIAL=ON', '-DENABLE_VERBOSE=ON') }
-    'wake'  { $cmakeArgs += @('-DENABLE_WAKE_HID=ON', '-DENABLE_BLE_WAKE=ON') }
+    'picow'     { $cmakeArgs += @('-DPICO_W_BUILD=ON') }
+    'waveshare' { $cmakeArgs += @('-DWAVESHARE_RP2350B_PLUS_W_BUILD=ON') }
+    'debug'     { $cmakeArgs += @('-DENABLE_SERIAL=ON', '-DENABLE_VERBOSE=ON', '-DWAKE_DEBUG=ON') }
 }
 
 Info "Configuring: cmake $($cmakeArgs -join ' ')"
 & cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { Die 'CMake configure failed.' }
 
-Info 'Building ds5-bridge...'
-& cmake --build $buildDir --target ds5-bridge
+Info 'Building pc-wake-dongle...'
+& cmake --build $buildDir --target pc-wake-dongle
 if ($LASTEXITCODE -ne 0) { Die 'Build failed.' }
 
 # --- Collect output ----------------------------------------------------------
-$uf2 = Join-Path $buildDir 'ds5-bridge.uf2'
+$uf2 = Join-Path $buildDir 'pc-wake-dongle.uf2'
 if (-not (Test-Path $uf2)) { Die "Expected $uf2 was not produced." }
 
-$outName = if ($Variant -eq 'standard') { 'ds5-bridge.uf2' } else { "ds5-bridge-$Variant.uf2" }
+$outName = if ($Variant -eq 'standard') { 'pc-wake-dongle.uf2' } else { "pc-wake-dongle-$Variant.uf2" }
 $nextToScript = Join-Path $PSScriptRoot $outName
 Copy-Item $uf2 $nextToScript -Force
 $desktop = [Environment]::GetFolderPath('Desktop')

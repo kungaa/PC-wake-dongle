@@ -1,36 +1,32 @@
 //
-// Created by awalol on 2026/4/30.
+// wake.cpp -- USB remote-wakeup + fake F15 keystroke state machine.
+//
+// Inherited from the DS5 dongle's ENABLE_WAKE_HID feature; the FSM and its
+// OS quirk handling (Windows wake-and-resleep, Linux remote-wakeup flag,
+// hubs masking suspend) are kept intact. Triggering is now done exclusively
+// by the BLE scanner via wake_trigger().
 //
 
 #include "wake.h"
 
-
-#ifdef ENABLE_WAKE_HID
-
 #include <cstdio>
 #include <cstring>
-#include "bt.h"
 #include "tusb.h"
 #include "device/dcd.h"
 #include "pico/sync.h"
 #include "pico/time.h"
 
-#ifdef ENABLE_BLE_WAKE
-#include "gap.h"
-#endif
-
-#define WAKE_KBD_INSTANCE     1
+#define WAKE_KBD_INSTANCE     0
 #define WAKE_KEYCODE_F15      0x68
 // Post-resume timings tuned for "wake-and-resleep" Windows behavior: the host
 // resumes USB, but if no HID input is consumed during the brief wake window
 // the system can re-suspend within ~1 s. Bigger settles + a second F15 give
 // Windows multiple polling cycles to pick the keystroke up.
-#define WAKE_SETTLE_US        150000   // 150 ms — let host finish USB re-init
+#define WAKE_SETTLE_US        150000   // 150 ms -- let host finish USB re-init
 #define WAKE_KEY_HOLD_US       80000   // 80 ms keydown -> keyup gap
 #define WAKE_KEY_UP_SETTLE_US 200000   // 200 ms between attempts (or before DONE)
 #define WAKE_REQUEST_TIMEOUT_US 5000000
 #define WAKE_KEY_ATTEMPTS     2
-
 
 #ifdef WAKE_DEBUG
 #  define WAKE_DBG(fmt, ...) printf("[wake] " fmt "\n", ##__VA_ARGS__)
@@ -64,11 +60,6 @@ static volatile bool host_resumed_event = false;
 static wake_state_t state = WAKE_IDLE;
 static uint64_t state_entered_us = 0;
 static uint8_t key_attempts = 0;
-// Last-seen DualSense button bytes. Idle defaults: byte 7 = 0x08 (D-pad
-// released), bytes 8 / 9 = 0 (no shoulders, no PS / touchpad / mute).
-static uint8_t prev_b7 = 0x08;
-static uint8_t prev_b8 = 0x00;
-static uint8_t prev_b9 = 0x00;
 
 static void enter_state(wake_state_t s) {
     state = s;
@@ -113,40 +104,21 @@ void wake_init(void) {
 extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
     WAKE_DBG("tud_suspend_cb remote_wakeup_en=%d prev_state=%s",
              (int)remote_wakeup_en, wake_state_name(state));
-    bt_power_off_controller();
     host_suspended = true;
-    #ifdef ENABLE_BLE_WAKE
-    gap_start_scan();
-    #endif
     host_resumed_event = false;
-    
+
     // Unconditionally re-arm on suspend. If a previous wake attempt hung
     // (e.g. Linux ignored a keystroke and left the endpoint busy forever),
     // we must abort and reset so the NEXT wake attempt can trigger.
     state = WAKE_PENDING_PRESS;
     state_entered_us = time_us_64();
-    prev_b7 = 0x08; prev_b8 = 0x00; prev_b9 = 0x00;
     key_attempts = 0;
     WAKE_DBG("-> PENDING_PRESS");
-}
-
-void wake_on_bt_connect(void) {
-    critical_section_enter_blocking(&wake_cs);
-    const bool should_wake = host_suspended &&
-        (state == WAKE_IDLE || state == WAKE_DONE || state == WAKE_PENDING_PRESS);
-    critical_section_exit(&wake_cs);
-
-    if (should_wake) {
-        request_host_wake("BT reconnect while suspended");
-    }
 }
 
 extern "C" void tud_resume_cb(void) {
     WAKE_DBG("tud_resume_cb state=%s", wake_state_name(state));
     host_suspended = false;
-    #ifdef ENABLE_BLE_WAKE
-    gap_stop_scan();
-    #endif
     host_resumed_event = true;
 }
 
@@ -156,48 +128,15 @@ extern "C" void tud_mount_cb(void) {
     host_resumed_event = true;
 }
 
-void wake_on_bt_input(const uint8_t *hid_input, uint16_t len) {
-    if (len < 10) return;
-    // DualSense BT 0x31 input report layout (after main.cpp's `data + 3` skip):
-    //   byte 7 low nibble: D-pad direction (0x08 idle); high nibble: face buttons
-    //   byte 8: L1, R1, L2 click, R2 click, share, options, L3, R3
-    //   byte 9: PS (bit 0), touchpad-click (bit 1), mute (bit 2)
-    //
-    // We trigger on ANY change in those three button bytes, not strictly on
-    // the PS bit. Reasons:
-    //   1. The DualSense's BT radio enters a low-power sniff mode after a
-    //      period of inactivity. The PS button alone often does not wake
-    //      the radio out of sniff -- shoulder buttons reliably do. So the
-    //      first BT report after S3 is most likely whichever button the
-    //      user happened to press to wake the radio. PS itself counts as
-    //      "any button" too, so the single-press UX still works.
-    //   2. We additionally call tud_remote_wakeup() speculatively even from
-    //      WAKE_IDLE / WAKE_DONE state. TinyUSB returns true only when the
-    //      host actually USB-suspended the bus; otherwise it's a no-op. This
-    //      protects against the case where tud_suspend_cb didn't fire (e.g.
-    //      a hub between the host and the dongle masking the suspend signal
-    //      from downstream). On success the FSM transitions to REQUESTED and
-    //      proceeds with the keystroke as normal.
-    const uint8_t b7 = hid_input[7];
-    const uint8_t b8 = hid_input[8];
-    const uint8_t b9 = hid_input[9];
-
+void wake_trigger(void) {
     critical_section_enter_blocking(&wake_cs);
-    const bool changed = (b7 != prev_b7) || (b8 != prev_b8) || (b9 != prev_b9);
-    const bool armable = (state == WAKE_IDLE || state == WAKE_DONE || state == WAKE_PENDING_PRESS);
-    prev_b7 = b7; prev_b8 = b8; prev_b9 = b9;
+    const bool should_wake = host_suspended &&
+        (state == WAKE_IDLE || state == WAKE_DONE || state == WAKE_PENDING_PRESS);
     critical_section_exit(&wake_cs);
 
-    if (changed && armable) {
-        request_host_wake("button event");
+    if (should_wake) {
+        request_host_wake("BLE target while suspended");
     }
-}
-
-void wake_on_bt_disconnect(void) {
-    critical_section_enter_blocking(&wake_cs);
-    state = WAKE_IDLE;
-    prev_b7 = 0x08; prev_b8 = 0x00; prev_b9 = 0x00;
-    critical_section_exit(&wake_cs);
 }
 
 void wake_task(void) {
@@ -307,5 +246,3 @@ void wake_task(void) {
         }
     }
 }
-
-#endif // ENABLE_WAKE_HID
