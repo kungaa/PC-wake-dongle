@@ -8,7 +8,7 @@
 
 // New magic vs. the DS5-dongle ancestor so stale configs are discarded.
 constexpr uint32_t CONFIG_MAGIC = 0x57414B45; // "WAKE"
-constexpr uint8_t CONFIG_VERSION = 1;
+constexpr uint8_t CONFIG_VERSION = 2;         // v2: multi-device list
 constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
 
 static Config config{};
@@ -56,11 +56,17 @@ void config_load() {
     if (config.body.ble_wake_enabled > 1) {
         config.body.ble_wake_enabled = 0;
     }
-    printf("[Config] loaded: wake %s, target %02X:%02X:%02X:%02X:%02X:%02X\n",
+    if (config.body.device_count > WAKE_MAX_DEVICES) {
+        config.body.device_count = WAKE_MAX_DEVICES;
+    }
+    for (int i = 0; i < config.body.device_count; i++) {
+        Wake_device &d = config.body.devices[i];
+        if (d.enabled > 1) d.enabled = 0;
+        d.name[WAKE_NAME_LEN - 1] = 0;
+    }
+    printf("[Config] loaded: wake %s, %d device(s)\n",
            config.body.ble_wake_enabled ? "enabled" : "disabled",
-           config.body.ble_wake_mac[0], config.body.ble_wake_mac[1],
-           config.body.ble_wake_mac[2], config.body.ble_wake_mac[3],
-           config.body.ble_wake_mac[4], config.body.ble_wake_mac[5]);
+           config.body.device_count);
 }
 
 bool config_save() {

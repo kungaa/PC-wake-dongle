@@ -3,10 +3,21 @@
 
 #include <cstdint>
 
+// 8 devices keeps Config inside one flash page (FLASH_PAGE_SIZE = 256).
+#define WAKE_MAX_DEVICES 8
+#define WAKE_NAME_LEN 20 // user label, NUL-terminated
+
+struct __attribute__((packed)) Wake_device {
+    uint8_t mac[6];           // MSB first (as printed)
+    uint8_t enabled;          // bool: this device may wake the PC
+    char name[WAKE_NAME_LEN]; // user-editable label
+};
+
 struct __attribute__((packed)) Config_body {
     uint8_t config_version;
-    uint8_t ble_wake_enabled; // bool: 0 disabled, 1 enabled
-    uint8_t ble_wake_mac[6];  // target BLE device MAC, MSB first (as printed)
+    uint8_t ble_wake_enabled; // bool: global wake switch
+    uint8_t device_count;     // valid entries in devices[]
+    Wake_device devices[WAKE_MAX_DEVICES];
 };
 
 struct __attribute__((packed)) Config {

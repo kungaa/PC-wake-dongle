@@ -147,25 +147,33 @@ static int make_file(struct fs_file *file, const char *status, const char *conte
     return 1;
 }
 
-static int json_config(char *out, size_t cap) {
-    const Config_body &c = get_config();
-    return snprintf(out, cap,
-                    "{\"enabled\":%d,\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"version\":\"%s\"}",
-                    c.ble_wake_enabled,
-                    c.ble_wake_mac[0], c.ble_wake_mac[1], c.ble_wake_mac[2],
-                    c.ble_wake_mac[3], c.ble_wake_mac[4], c.ble_wake_mac[5],
-                    PICO_PROGRAM_VERSION_STRING);
-}
-
-// Advertised device names go into JSON and then into the page DOM: strip
-// anything that could break either.
+// Device names go into JSON and then into the page DOM: strip anything that
+// could break either (UTF-8 multibyte sequences pass through).
 static void sanitize_name(const char *in, char *out, size_t cap) {
     size_t n = 0;
     for (; *in && n + 1 < cap; in++) {
-        const char ch = *in;
-        out[n++] = (ch < 0x20 || ch > 0x7E || strchr("\"\\<>&", ch)) ? '.' : ch;
+        const unsigned char ch = (unsigned char) *in;
+        out[n++] = (ch < 0x20 || strchr("\"\\<>&", ch)) ? '.' : (char) ch;
     }
     out[n] = 0;
+}
+
+static int json_config(char *out, size_t cap) {
+    const Config_body &c = get_config();
+    int n = snprintf(out, cap, "{\"enabled\":%d,\"version\":\"%s\",\"devices\":[",
+                     c.ble_wake_enabled, PICO_PROGRAM_VERSION_STRING);
+    for (int i = 0; i < c.device_count && (size_t) n < cap; i++) {
+        const Wake_device &d = c.devices[i];
+        char name[WAKE_NAME_LEN];
+        sanitize_name(d.name, name, sizeof(name));
+        n += snprintf(out + n, cap - n,
+                      "%s{\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"enabled\":%d,\"name\":\"%s\"}",
+                      i ? "," : "",
+                      d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4], d.mac[5],
+                      d.enabled, name);
+    }
+    if ((size_t) n < cap) n += snprintf(out + n, cap - n, "]}");
+    return n;
 }
 
 static int json_scan(char *out, size_t cap) {
@@ -196,7 +204,7 @@ extern "C" int fs_open_custom(struct fs_file *file, const char *name) {
                          WEB_PAGE, sizeof(WEB_PAGE) - 1);
     }
     if (strcmp(name, "/api/config") == 0) {
-        static char body[128];
+        static char body[1024];
         const int len = json_config(body, sizeof(body));
         return make_file(file, "200 OK", "application/json", body, len);
     }
@@ -227,10 +235,11 @@ extern "C" int fs_read_custom(struct fs_file *file, char *buffer, int count) {
 }
 
 //--------------------------------------------------------------------+
-// POST /api/config -- "enabled=1&mac=AA%3ABB%3A..."
+// POST /api/config -- full config replacement:
+//   "enabled=1&dev=<MAC>|<0/1>|<label>&dev=..."  (each dev= URL-encoded)
 //--------------------------------------------------------------------+
 
-#define POST_BUFSIZE 192
+#define POST_BUFSIZE 1024
 static char post_buf[POST_BUFSIZE];
 static u16_t post_pos;
 static void *post_conn;
@@ -260,30 +269,38 @@ static bool parse_mac(const char *s, uint8_t out[6]) {
 }
 
 static void apply_post(char *body) {
-    int enabled = -1;
-    uint8_t mac[6];
-    bool have_mac = false;
+    Config_body &c = get_config();
+    c.device_count = 0;
 
+    // Tokens are split on '&' BEFORE url-decoding, so encoded '&' in labels
+    // cannot break the framing. The page strips '|' from labels.
     for (char *tok = strtok(body, "&"); tok; tok = strtok(nullptr, "&")) {
         url_decode(tok);
         if (strncmp(tok, "enabled=", 8) == 0) {
-            enabled = atoi(tok + 8) ? 1 : 0;
-        } else if (strncmp(tok, "mac=", 4) == 0) {
-            have_mac = parse_mac(tok + 4, mac);
+            c.ble_wake_enabled = atoi(tok + 8) ? 1 : 0;
+        } else if (strncmp(tok, "dev=", 4) == 0 && c.device_count < WAKE_MAX_DEVICES) {
+            // <MAC>|<0/1>|<label>
+            char *mac_s = tok + 4;
+            char *en_s = strchr(mac_s, '|');
+            if (!en_s) continue;
+            *en_s++ = 0;
+            char *name_s = strchr(en_s, '|');
+            if (!name_s) continue;
+            *name_s++ = 0;
+
+            Wake_device &d = c.devices[c.device_count];
+            if (!parse_mac(mac_s, d.mac)) continue;
+            d.enabled = atoi(en_s) ? 1 : 0;
+            snprintf(d.name, sizeof(d.name), "%s", name_s);
+            c.device_count++;
         }
     }
-
-    Config_body &c = get_config();
-    if (enabled >= 0) c.ble_wake_enabled = (uint8_t) enabled;
-    if (have_mac) memcpy(c.ble_wake_mac, mac, 6);
 
     // The sector erase blocks with interrupts off; feed the watchdog first.
     watchdog_update();
     config_save();
-    printf("[NET] config saved: wake %s, target %02X:%02X:%02X:%02X:%02X:%02X\n",
-           c.ble_wake_enabled ? "enabled" : "disabled",
-           c.ble_wake_mac[0], c.ble_wake_mac[1], c.ble_wake_mac[2],
-           c.ble_wake_mac[3], c.ble_wake_mac[4], c.ble_wake_mac[5]);
+    printf("[NET] config saved: wake %s, %d device(s)\n",
+           c.ble_wake_enabled ? "enabled" : "disabled", c.device_count);
 }
 
 extern "C" err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,

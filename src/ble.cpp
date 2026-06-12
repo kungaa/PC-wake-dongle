@@ -28,6 +28,7 @@
 static btstack_packet_callback_registration_t hci_event_cb;
 static bool stack_ready = false;
 static bool scanning = false;
+static bool scan_is_active_mode = false;
 static uint32_t web_scan_deadline_ms = 0;
 static ble_scan_result results[BLE_SCAN_MAX_RESULTS];
 static int result_count = 0;
@@ -86,8 +87,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
     switch (hci_event_packet_get_type(packet)) {
         case BTSTACK_EVENT_STATE: {
             if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
-                // passive scan, 60 ms interval / 30 ms window (units of 0.625 ms)
-                gap_set_scan_parameters(0, 0x0060, 0x0030);
                 stack_ready = true;
                 printf("[BLE] stack ready\n");
             }
@@ -98,10 +97,16 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             bd_addr_t addr;
             gap_event_advertising_report_get_address(packet, addr);
 
-            if (get_config().ble_wake_enabled && host_suspended &&
-                memcmp(addr, get_config().ble_wake_mac, 6) == 0) {
-                printf("[BLE] target %s seen, waking host\n", bd_addr_to_str(addr));
-                wake_trigger();
+            const Config_body &cfg = get_config();
+            if (cfg.ble_wake_enabled && host_suspended) {
+                for (int i = 0; i < cfg.device_count; i++) {
+                    if (cfg.devices[i].enabled && memcmp(addr, cfg.devices[i].mac, 6) == 0) {
+                        printf("[BLE] target %s (%s) seen, waking host\n",
+                               bd_addr_to_str(addr), cfg.devices[i].name);
+                        wake_trigger();
+                        break;
+                    }
+                }
             }
 
             if (web_scan_active()) {
@@ -130,23 +135,38 @@ void ble_request_web_scan(uint32_t duration_ms) {
     web_scan_deadline_ms = to_ms_since_boot(get_absolute_time()) + duration_ms;
 }
 
+static bool any_device_enabled() {
+    const Config_body &cfg = get_config();
+    for (int i = 0; i < cfg.device_count; i++) {
+        if (cfg.devices[i].enabled) return true;
+    }
+    return false;
+}
+
 void ble_task() {
     if (!stack_ready) return;
 
     // Scan whenever a wake could be needed: host suspended, or host never
     // enumerated us (PC powered off with USB standby power). The web UI can
     // also force scanning while it polls for nearby devices.
-    const bool want = web_scan_active() ||
-                      (get_config().ble_wake_enabled && (host_suspended || !tud_mounted()));
+    const bool web = web_scan_active();
+    const bool want = web ||
+                      (get_config().ble_wake_enabled && any_device_enabled() &&
+                       (host_suspended || !tud_mounted()));
 
-    if (want != scanning) {
-        scanning = want;
+    // Web scanning is ACTIVE (requests scan responses, where most devices put
+    // their name); the wake path only needs the MAC, so stay passive there.
+    if (want != scanning || (want && web != scan_is_active_mode)) {
+        if (scanning) gap_stop_scan();
         if (want) {
+            // 60 ms interval / 30 ms window (units of 0.625 ms)
+            gap_set_scan_parameters(web ? 1 : 0, 0x0060, 0x0030);
             gap_start_scan();
-        } else {
-            gap_stop_scan();
         }
-        printf("[BLE] scan %s\n", want ? "on" : "off");
+        scanning = want;
+        scan_is_active_mode = web;
+        printf("[BLE] scan %s%s\n", want ? "on" : "off",
+               want ? (web ? " (active)" : " (passive)") : "");
     }
 }
 
