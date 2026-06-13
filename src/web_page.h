@@ -3,6 +3,10 @@
 
 // Config UI served at http://192.168.7.1/ (or http://picowake.local/).
 // Single self-contained page; talks to /api/config and /api/scan.
+//
+// Save policy: discrete actions (add/delete device, enable toggles, LED
+// toggle) autosave immediately; name edits are buffered behind the Save
+// button so flash isn't rewritten per keystroke.
 static const char WEB_PAGE[] = R"rawhtml(<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PC Wake Dongle</title>
@@ -17,8 +21,9 @@ th,td{padding:.4rem .5rem;text-align:left;border-bottom:1px solid #333;font-size
 tr.saved{opacity:.45}
 input[type=text]{background:#222;border:1px solid #444;color:#eee;padding:.35rem;border-radius:4px;width:11em}
 button{background:#2563eb;border:0;color:#fff;padding:.45rem 1rem;border-radius:4px;cursor:pointer;font-size:.95rem}
+button:disabled{background:#333;color:#777;cursor:default}
 button.del{background:#7f1d1d;padding:.25rem .6rem}
-.row{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin:.6rem 0}
+.row{display:flex;gap:1.2rem;align-items:center;flex-wrap:wrap;margin:.6rem 0}
 #status{min-height:1.2em}
 .warn{color:#facc15;font-size:.85rem}
 .mono{font-family:monospace;font-size:.88rem}
@@ -32,9 +37,14 @@ i{color:#888}
 <table><thead><tr><th>Wake</th><th>Name</th><th>MAC</th><th></th></tr></thead>
 <tbody id="saved"></tbody></table>
 <div class="row">
-  <label><input type="checkbox" id="en"> Wake enabled (global)</label>
-  <button id="save">Save</button>
+  <button id="save" disabled>Save names</button>
   <span id="status"></span>
+</div>
+
+<h2>Settings</h2>
+<div class="row">
+  <label><input type="checkbox" id="en"> Wake enabled (global)</label>
+  <label><input type="checkbox" id="led"> Status LED</label>
 </div>
 
 <h2>Nearby BLE devices <i style="font-weight:normal;font-size:.8em">(click to add)</i></h2>
@@ -46,9 +56,21 @@ appears. Phones and some devices rotate random MAC addresses and will not work r
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>s.replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
-let devs=[],dirty=false;
+let devs=[],namesDirty=false;
 
-function markDirty(){dirty=true;$('status').className='dirty';$('status').textContent='unsaved changes'}
+function setStatus(msg,warn){const st=$('status');st.className=warn?'dirty':'';st.textContent=msg}
+function markNamesDirty(){namesDirty=true;$('save').disabled=false;setStatus('unsaved name changes',true)}
+
+async function save(){
+  let body=`enabled=${$('en').checked?1:0}&led_off=${$('led').checked?0:1}`;
+  devs.forEach(d=>{
+    const name=d.name.replace(/[|]/g,' ').trim()||'Device';
+    body+=`&dev=${encodeURIComponent(d.mac+'|'+(d.enabled?1:0)+'|'+name)}`;
+  });
+  const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+  if(r.ok){namesDirty=false;$('save').disabled=true;setStatus('Saved ✓',false)}
+  else setStatus('Save failed',true);
+}
 
 function renderSaved(){
   const tb=$('saved');tb.innerHTML='';
@@ -59,24 +81,24 @@ function renderSaved(){
 <td><input type="text" maxlength="19" value="${esc(d.name)}"></td>
 <td class="mono">${d.mac}</td>
 <td><button class="del">&#10005;</button></td>`;
-    tr.querySelector('input[type=checkbox]').onchange=e=>{d.enabled=e.target.checked?1:0;markDirty()};
-    tr.querySelector('input[type=text]').oninput=e=>{d.name=e.target.value;markDirty()};
-    tr.querySelector('button').onclick=()=>{devs.splice(i,1);renderSaved();markDirty()};
+    tr.querySelector('input[type=checkbox]').onchange=e=>{d.enabled=e.target.checked?1:0;save()};
+    tr.querySelector('input[type=text]').oninput=e=>{d.name=e.target.value;markNamesDirty()};
+    tr.querySelector('button').onclick=()=>{devs.splice(i,1);renderSaved();save()};
     tb.appendChild(tr);
   });
 }
 
 function addDevice(mac,name){
   if(devs.some(d=>d.mac===mac))return;
-  if(devs.length>=8){$('status').className='dirty';$('status').textContent='limit: 8 devices';return}
+  if(devs.length>=8){setStatus('limit: 8 devices',true);return}
   devs.push({mac,enabled:1,name:(name||'Device').substring(0,19)});
-  renderSaved();markDirty();
+  renderSaved();save();
 }
 
 async function loadCfg(){
   const c=await (await fetch('/api/config')).json();
-  $('en').checked=!!c.enabled;$('ver').textContent=c.version;
-  devs=c.devices;dirty=false;$('status').textContent='';
+  $('en').checked=!!c.enabled;$('led').checked=!c.led_off;$('ver').textContent=c.version;
+  devs=c.devices;namesDirty=false;$('save').disabled=true;setStatus('',false);
   renderSaved();
 }
 
@@ -95,18 +117,9 @@ async function poll(){
   }catch(e){}
 }
 
-$('en').onchange=markDirty;
-$('save').onclick=async()=>{
-  let body=`enabled=${$('en').checked?1:0}`;
-  devs.forEach(d=>{
-    const name=d.name.replace(/[|]/g,' ').trim()||'Device';
-    body+=`&dev=${encodeURIComponent(d.mac+'|'+(d.enabled?1:0)+'|'+name)}`;
-  });
-  const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
-  $('status').className=r.ok?'':'dirty';
-  $('status').textContent=r.ok?'Saved ✓':'Save failed';
-  if(r.ok){dirty=false;loadCfg()}
-};
+$('en').onchange=save;
+$('led').onchange=save;
+$('save').onclick=save;
 
 loadCfg();poll();setInterval(poll,2000);
 </script></body></html>

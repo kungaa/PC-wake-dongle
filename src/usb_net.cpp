@@ -160,8 +160,8 @@ static void sanitize_name(const char *in, char *out, size_t cap) {
 
 static int json_config(char *out, size_t cap) {
     const Config_body &c = get_config();
-    int n = snprintf(out, cap, "{\"enabled\":%d,\"version\":\"%s\",\"devices\":[",
-                     c.ble_wake_enabled, PICO_PROGRAM_VERSION_STRING);
+    int n = snprintf(out, cap, "{\"enabled\":%d,\"led_off\":%d,\"version\":\"%s\",\"devices\":[",
+                     c.ble_wake_enabled, c.led_off, PICO_PROGRAM_VERSION_STRING);
     for (int i = 0; i < c.device_count && (size_t) n < cap; i++) {
         const Wake_device &d = c.devices[i];
         char name[WAKE_NAME_LEN];
@@ -278,6 +278,8 @@ static void apply_post(char *body) {
         url_decode(tok);
         if (strncmp(tok, "enabled=", 8) == 0) {
             c.ble_wake_enabled = atoi(tok + 8) ? 1 : 0;
+        } else if (strncmp(tok, "led_off=", 8) == 0) {
+            c.led_off = atoi(tok + 8) ? 1 : 0;
         } else if (strncmp(tok, "dev=", 4) == 0 && c.device_count < WAKE_MAX_DEVICES) {
             // <MAC>|<0/1>|<label>
             char *mac_s = tok + 4;

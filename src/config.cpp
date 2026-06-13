@@ -8,7 +8,7 @@
 
 // New magic vs. the DS5-dongle ancestor so stale configs are discarded.
 constexpr uint32_t CONFIG_MAGIC = 0x57414B45; // "WAKE"
-constexpr uint8_t CONFIG_VERSION = 2;         // v2: multi-device list
+constexpr uint8_t CONFIG_VERSION = 3;         // v2: multi-device list; v3: led_off
 constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
 
 static Config config{};
@@ -55,6 +55,9 @@ void config_load() {
     }
     if (config.body.ble_wake_enabled > 1) {
         config.body.ble_wake_enabled = 0;
+    }
+    if (config.body.led_off > 1) {
+        config.body.led_off = 0;
     }
     if (config.body.device_count > WAKE_MAX_DEVICES) {
         config.body.device_count = WAKE_MAX_DEVICES;

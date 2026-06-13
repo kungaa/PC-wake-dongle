@@ -23,21 +23,17 @@
 #include "usb_net.h"
 #include "wake.h"
 
-// LED: solid while the host is up, 1 Hz blink while scanning, off otherwise.
-// The LED sits behind the CYW43 SPI bridge, so only write it on change.
+// LED: solid while the host is up, 1 Hz blink while scanning, off otherwise
+// (or always off when disabled in config). The LED sits behind the CYW43 SPI
+// bridge, so only write it on change.
 static void led_task() {
-    const uint32_t now = to_ms_since_boot(get_absolute_time());
-    static uint32_t last_toggle = 0;
-    static bool blink_on = false;
     static int applied = -1;
 
     bool want;
-    if (ble_scanning()) {
-        if (now - last_toggle >= 500) {
-            last_toggle = now;
-            blink_on = !blink_on;
-        }
-        want = blink_on;
+    if (get_config().led_off) {
+        want = false;
+    } else if (ble_scanning()) {
+        want = (to_ms_since_boot(get_absolute_time()) / 500) & 1;
     } else {
         want = tud_mounted() && !host_suspended;
     }

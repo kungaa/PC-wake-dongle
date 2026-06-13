@@ -16,6 +16,7 @@ struct __attribute__((packed)) Wake_device {
 struct __attribute__((packed)) Config_body {
     uint8_t config_version;
     uint8_t ble_wake_enabled; // bool: global wake switch
+    uint8_t led_off;          // bool: disable the status LED entirely
     uint8_t device_count;     // valid entries in devices[]
     Wake_device devices[WAKE_MAX_DEVICES];
 };
