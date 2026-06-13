@@ -40,6 +40,8 @@ static void config_defaults() {
     config.magic = CONFIG_MAGIC;
     config.size = sizeof(Config_body);
     config.body.config_version = CONFIG_VERSION;
+    // Wake on by default: a freshly added device should just work.
+    config.body.ble_wake_enabled = 1;
 }
 
 void config_load() {

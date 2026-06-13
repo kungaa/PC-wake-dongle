@@ -1,7 +1,7 @@
 #ifndef WAKE_DONGLE_WEB_PAGE_H
 #define WAKE_DONGLE_WEB_PAGE_H
 
-// Config UI served at http://192.168.7.1/ (or http://picowake.local/).
+// Config UI served at http://10.7.7.1/ (or http://picowake.local/).
 // Single self-contained page; talks to /api/config and /api/scan.
 //
 // Save policy: discrete actions (add/delete device, enable toggles, LED

@@ -17,7 +17,7 @@ happens. This dongle fixes that:
 
 Configuration happens in your browser: the dongle also enumerates as a **USB
 network adapter** (CDC-NCM) and serves its config page at
-**http://192.168.7.1/** (or **http://picowake.local/**). The page live-lists
+**http://10.7.7.1/** (or **http://picowake.local/**). The page live-lists
 nearby BLE advertisers with name + RSSI so you can pick your device instead
 of typing a MAC address.
 
@@ -46,7 +46,7 @@ of typing a MAC address.
 1. Grab the `.uf2` for your board from [Releases](../../releases), or build it
    yourself (below).
 2. Hold BOOTSEL, plug the Pico in, drop the `.uf2` onto the mounted drive.
-3. Open **http://192.168.7.1/** (the dongle shows up as a network adapter; no
+3. Open **http://10.7.7.1/** (the dongle shows up as a network adapter; no
    internet traffic ever routes through it).
 4. Power-cycle your gamepad, click its entry in the device list, tick
    **Wake enabled**, hit **Save**.

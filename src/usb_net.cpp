@@ -54,14 +54,17 @@ static struct netif netif_data;
 
 #define INIT_IP4(a, b, c, d) {PP_HTONL(LWIP_MAKEU32(a, b, c, d))}
 
-static const ip4_addr_t ipaddr  = INIT_IP4(192, 168, 7, 1);
-static const ip4_addr_t netmask = INIT_IP4(255, 255, 255, 0);
+// 10.7.7.0/29: an obscure corner of RFC 1918 space (homes mostly use
+// 192.168.x), and the tiny /29 means we shadow at most 8 addresses if a LAN
+// does overlap.
+static const ip4_addr_t ipaddr  = INIT_IP4(10, 7, 7, 1);
+static const ip4_addr_t netmask = INIT_IP4(255, 255, 255, 248);
 static const ip4_addr_t gateway = INIT_IP4(0, 0, 0, 0);
 
 static dhcp_entry_t dhcp_entries[] = {
-    {{0}, INIT_IP4(192, 168, 7, 16), 24 * 60 * 60},
-    {{0}, INIT_IP4(192, 168, 7, 17), 24 * 60 * 60},
-    {{0}, INIT_IP4(192, 168, 7, 18), 24 * 60 * 60},
+    {{0}, INIT_IP4(10, 7, 7, 2), 24 * 60 * 60},
+    {{0}, INIT_IP4(10, 7, 7, 3), 24 * 60 * 60},
+    {{0}, INIT_IP4(10, 7, 7, 4), 24 * 60 * 60},
 };
 
 static const dhcp_config_t dhcp_config = {
@@ -89,7 +92,10 @@ static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
 static err_t netif_init_cb(struct netif *netif) {
     LWIP_ASSERT("netif != NULL", (netif != NULL));
     netif->mtu = CFG_TUD_NET_MTU;
-    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
+    // NETIF_FLAG_IGMP is required for the mDNS responder to join its
+    // multicast group (picowake.local resolution fails silently without it).
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP |
+                   NETIF_FLAG_IGMP;
     netif->state = NULL;
     netif->name[0] = 'u';
     netif->name[1] = 's';
@@ -366,10 +372,13 @@ void usb_net_init() {
         printf("[NET] dhcp server init failed\n");
     }
     mdns_resp_init();
-    mdns_resp_add_netif(&netif_data, "picowake");
+    const err_t mdns_err = mdns_resp_add_netif(&netif_data, "picowake");
+    if (mdns_err != ERR_OK) {
+        printf("[NET] mdns add netif failed: %d\n", (int) mdns_err);
+    }
     httpd_init();
 
-    printf("[NET] config UI at http://192.168.7.1/ (http://picowake.local/)\n");
+    printf("[NET] config UI at http://10.7.7.1/ (http://picowake.local/)\n");
 }
 
 void usb_net_task() {
