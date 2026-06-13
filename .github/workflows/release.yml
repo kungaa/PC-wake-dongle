@@ -1,5 +1,7 @@
 name: Build release firmware
 
+# Fires when a GitHub Release is published: builds every board UF2 and attaches
+# them to that release (see build-firmware.yml).
 on:
   release:
     types:
