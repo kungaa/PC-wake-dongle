@@ -17,9 +17,12 @@ happens. This dongle fixes that:
 
 Configuration happens in your browser: the dongle also enumerates as a **USB
 network adapter** (CDC-NCM) and serves its config page at
-**http://10.7.7.1/** (or **http://picowake.local/**). The page live-lists
-nearby BLE advertisers with name + RSSI so you can pick your device instead
-of typing a MAC address.
+**http://10.7.7.107/**. The page live-lists nearby BLE advertisers with name +
+RSSI so you can pick your device instead of typing a MAC address.
+
+> **http://picowake.local/** may also work, but mDNS/Bonjour resolution depends
+> on your OS and isn't reliable everywhere — **use the IP address** if `.local`
+> doesn't resolve.
 
 ## What works / what doesn't
 
@@ -46,7 +49,7 @@ of typing a MAC address.
 1. Grab the `.uf2` for your board from [Releases](../../releases), or build it
    yourself (below).
 2. Hold BOOTSEL, plug the Pico in, drop the `.uf2` onto the mounted drive.
-3. Open **http://10.7.7.1/** (the dongle shows up as a network adapter; no
+3. Open **http://10.7.7.107/** (the dongle shows up as a network adapter; no
    internet traffic ever routes through it).
 4. Power-cycle your gamepad, click its entry in the device list, tick
    **Wake enabled**, hit **Save**.
@@ -92,11 +95,16 @@ Options: `ENABLE_SERIAL` (USB serial console), `ENABLE_VERBOSE`, `WAKE_DEBUG`
 
 ## Lineage
 
-Forked from [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle) (a
+Forked from
+[Kirkland-Pickles/DS5Dongle-windows-htpc](https://github.com/Kirkland-Pickles/DS5Dongle-windows-htpc),
+itself a fork of [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle) (a
 DualSense wireless adapter). The DualSense bridging, audio and gamepad code
 was removed; the USB remote-wakeup state machine (with its Windows/Linux
 quirk handling) and the BLE scan-to-wake feature were kept and built upon.
 
 ## License
 
-See [LICENSE](./LICENSE).
+Licensed under the **GNU General Public License v3.0** — see [LICENSE](./LICENSE).
+
+This project derives from MIT-licensed code (see Lineage above); the original
+MIT notice is preserved in [LICENSE-MIT](./LICENSE-MIT) as that license requires.

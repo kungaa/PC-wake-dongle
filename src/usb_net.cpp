@@ -54,17 +54,17 @@ static struct netif netif_data;
 
 #define INIT_IP4(a, b, c, d) {PP_HTONL(LWIP_MAKEU32(a, b, c, d))}
 
-// 10.7.7.0/29: an obscure corner of RFC 1918 space (homes mostly use
-// 192.168.x), and the tiny /29 means we shadow at most 8 addresses if a LAN
-// does overlap.
-static const ip4_addr_t ipaddr  = INIT_IP4(10, 7, 7, 1);
+// 10.7.7.104/29: an obscure corner of RFC 1918 space (homes mostly use
+// 192.168.x). The dongle lives at .107; the host PC gets .108 by DHCP. The /29
+// (.104-.111) is small, so it shadows little even if a LAN happens to overlap.
+static const ip4_addr_t ipaddr  = INIT_IP4(10, 7, 7, 107);
 static const ip4_addr_t netmask = INIT_IP4(255, 255, 255, 248);
 static const ip4_addr_t gateway = INIT_IP4(0, 0, 0, 0);
 
 static dhcp_entry_t dhcp_entries[] = {
-    {{0}, INIT_IP4(10, 7, 7, 2), 24 * 60 * 60},
-    {{0}, INIT_IP4(10, 7, 7, 3), 24 * 60 * 60},
-    {{0}, INIT_IP4(10, 7, 7, 4), 24 * 60 * 60},
+    {{0}, INIT_IP4(10, 7, 7, 108), 24 * 60 * 60},
+    {{0}, INIT_IP4(10, 7, 7, 109), 24 * 60 * 60},
+    {{0}, INIT_IP4(10, 7, 7, 110), 24 * 60 * 60},
 };
 
 static const dhcp_config_t dhcp_config = {
@@ -78,20 +78,31 @@ static const dhcp_config_t dhcp_config = {
 
 static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
     (void) netif;
-    for (;;) {
-        if (!tud_ready()) return ERR_USE;
+    // Bounded wait: spin only briefly for the NCM endpoint to drain, then drop
+    // the frame. An unbounded loop here deadlocks the main loop if the host is
+    // not draining -- e.g. an unsolicited mDNS/IGMP multicast sent before the
+    // host has anything queued (this hung the debug build). Replies to host
+    // traffic always free up quickly; a dropped multicast is harmless.
+    const absolute_time_t deadline = make_timeout_time_ms(50);
+    while (tud_ready()) {
         if (tud_network_can_xmit(p->tot_len)) {
             tud_network_xmit(p, 0);
             return ERR_OK;
         }
-        // transmit path busy: service USB until it frees up
-        tud_task();
+        if (time_reached(deadline)) return ERR_WOULDBLOCK;
+        tud_task(); // service USB until the transmit path frees up
     }
+    return ERR_USE;
 }
 
 static err_t netif_init_cb(struct netif *netif) {
     LWIP_ASSERT("netif != NULL", (netif != NULL));
     netif->mtu = CFG_TUD_NET_MTU;
+    // No NETIF_FLAG_IGMP: enabling it makes the mDNS responder join a multicast
+    // group, whose membership-report transmit reliably faults this NCM setup
+    // into the watchdog reboot loop (tried at init and deferred -- both crash).
+    // picowake.local is therefore best-effort only; the IP (10.7.7.107) is the
+    // documented, reliable way in.
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
     netif->state = NULL;
     netif->name[0] = 'u';
@@ -369,13 +380,13 @@ void usb_net_init() {
         printf("[NET] dhcp server init failed\n");
     }
     mdns_resp_init();
-    const err_t mdns_err = mdns_resp_add_netif(&netif_data, "picowake");
-    if (mdns_err != ERR_OK) {
-        printf("[NET] mdns add netif failed: %d\n", (int) mdns_err);
-    }
+    // Best-effort: without NETIF_FLAG_IGMP this can't join the multicast group,
+    // so it returns ERR_VAL and picowake.local generally won't resolve -- but it
+    // also can't crash. Use the IP. (LWIP_ERROR is non-fatal on the Pico.)
+    mdns_resp_add_netif(&netif_data, "picowake");
     httpd_init();
 
-    printf("[NET] config UI at http://10.7.7.1/ (http://picowake.local/)\n");
+    printf("[NET] config UI at http://10.7.7.107/ (picowake.local best-effort)\n");
 }
 
 void usb_net_task() {

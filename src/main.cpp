@@ -5,7 +5,7 @@
 //
 //   - USB HID boot keyboard with remote wakeup: taps F15 to wake the host
 //   - passive BLE scan (CYW43) matches the configured target MAC
-//   - USB NCM network interface serves the config web UI (10.7.7.1)
+//   - USB NCM network interface serves the config web UI (10.7.7.107)
 //
 
 #include <cstdio>
