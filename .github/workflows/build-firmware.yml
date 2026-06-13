@@ -36,7 +36,9 @@ on:
 
 env:
   PICO_SDK_REF: 2.2.0
-  TINYUSB_REF: 0.20.0
+  # TinyUSB is taken from the SDK's pinned submodule (SDK 2.2.0 -> 0.20.1).
+  # Do NOT override it: the upstream 0.20.0 tag predates the 11-arg
+  # TUD_CDC_NCM_DESCRIPTOR this project uses and won't compile.
   PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
   ARM_TOOLCHAIN_VERSION: 14.2.rel1
   ARM_TOOLCHAIN_URL: https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz
@@ -126,20 +128,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PICO_SDK_PATH }}
-          key: ${{ runner.os }}-${{ runner.arch }}-pico-sdk-${{ env.PICO_SDK_REF }}-tinyusb-${{ env.TINYUSB_REF }}
+          key: ${{ runner.os }}-${{ runner.arch }}-pico-sdk-${{ env.PICO_SDK_REF }}
 
       - name: Download Pico SDK
         if: steps.cache-pico-sdk.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$PICO_SDK_REF" https://github.com/raspberrypi/pico-sdk.git "$PICO_SDK_PATH"
           git -C "$PICO_SDK_PATH" submodule update --init --recursive
-
-      - name: Switch TinyUSB to configured tag
-        run: |
-          if ! git -C "$PICO_SDK_PATH/lib/tinyusb" rev-parse -q --verify "refs/tags/$TINYUSB_REF" >/dev/null; then
-            git -C "$PICO_SDK_PATH/lib/tinyusb" fetch --depth 1 origin "refs/tags/$TINYUSB_REF:refs/tags/$TINYUSB_REF"
-          fi
-          git -C "$PICO_SDK_PATH/lib/tinyusb" checkout --detach "$TINYUSB_REF"
 
       - name: Build Pico 2 W firmware (standard)
         run: |
