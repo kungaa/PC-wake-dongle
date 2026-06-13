@@ -36,9 +36,11 @@ on:
 
 env:
   PICO_SDK_REF: 2.2.0
-  # TinyUSB is taken from the SDK's pinned submodule (SDK 2.2.0 -> 0.20.1).
-  # Do NOT override it: the upstream 0.20.0 tag predates the 11-arg
-  # TUD_CDC_NCM_DESCRIPTOR this project uses and won't compile.
+  # Pin TinyUSB to the exact commit the local Pico SDK 2.2.0 install bundles
+  # (reported as 0.20.1). The pico-sdk git "2.2.0" ref points at an OLDER
+  # TinyUSB whose 9-arg TUD_CDC_NCM_DESCRIPTOR can't compile this project --
+  # the code passes 11 args (the 0.20.1 signature). Must match local builds.
+  TINYUSB_REF: 08f9855e3dc51291a8c30e2eeccab31f8f07d0a9
   PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
   ARM_TOOLCHAIN_VERSION: 14.2.rel1
   ARM_TOOLCHAIN_URL: https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz
@@ -128,13 +130,26 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PICO_SDK_PATH }}
-          key: ${{ runner.os }}-${{ runner.arch }}-pico-sdk-${{ env.PICO_SDK_REF }}
+          key: ${{ runner.os }}-${{ runner.arch }}-pico-sdk-${{ env.PICO_SDK_REF }}-tinyusb-${{ env.TINYUSB_REF }}
 
       - name: Download Pico SDK
         if: steps.cache-pico-sdk.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$PICO_SDK_REF" https://github.com/raspberrypi/pico-sdk.git "$PICO_SDK_PATH"
           git -C "$PICO_SDK_PATH" submodule update --init --recursive
+
+      - name: Pin TinyUSB to the SDK 2.2.0 bundled commit
+        if: steps.cache-pico-sdk.outputs.cache-hit != 'true'
+        run: |
+          # The pico-sdk 2.2.0 git ref pins an older TinyUSB than the official
+          # SDK *install* does; force the commit our code is written against.
+          tu="$PICO_SDK_PATH/lib/tinyusb"
+          if ! git -C "$tu" cat-file -e "$TINYUSB_REF^{commit}" 2>/dev/null; then
+            git -C "$tu" fetch --depth 1 origin "$TINYUSB_REF"
+          fi
+          git -C "$tu" checkout --detach "$TINYUSB_REF"
+          git -C "$tu" submodule update --init --recursive
+          git -C "$tu" describe --tags || true
 
       - name: Build Pico 2 W firmware (standard)
         run: |
