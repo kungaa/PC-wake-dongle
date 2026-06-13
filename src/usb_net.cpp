@@ -92,10 +92,7 @@ static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
 static err_t netif_init_cb(struct netif *netif) {
     LWIP_ASSERT("netif != NULL", (netif != NULL));
     netif->mtu = CFG_TUD_NET_MTU;
-    // NETIF_FLAG_IGMP is required for the mDNS responder to join its
-    // multicast group (picowake.local resolution fails silently without it).
-    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP |
-                   NETIF_FLAG_IGMP;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
     netif->state = NULL;
     netif->name[0] = 'u';
     netif->name[1] = 's';
