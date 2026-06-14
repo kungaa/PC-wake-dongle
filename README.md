@@ -51,10 +51,8 @@ RSSI so you can pick your device instead of typing a MAC address.
 2. Hold BOOTSEL, plug the Pico in, drop the `.uf2` onto the mounted drive.
 3. Open **http://10.7.7.107/** (the dongle shows up as a network adapter; no
    internet traffic ever routes through it).
-4. Power-cycle your gamepad, click its entry in the device list, tick
-   **Wake enabled**, hit **Save**.
-5. In Windows Device Manager, make sure the dongle's *HID Keyboard Device* has
-   *"Allow this device to wake the computer"* enabled (usually default).
+4. Power-cycle your gamepad and click its entry in the device list. It's
+   added with wake already enabled and saved automatically — no Save button.
 
 LED: solid = host awake; blinking = scanning (host asleep or config page
 open); off = idle.
