@@ -6,7 +6,9 @@
 
 Most Bluetooth gamepads cannot wake a sleeping PC: you turn the pad on, it
 tries to reconnect, but the PC's Bluetooth stack is asleep and nothing
-happens. This dongle fixes that:
+happens. This dongle fixes that — out of the box, with no per-device OS
+tweaking (no fiddling with Device Manager power settings on Windows, no
+editing udev rules on Linux); it wakes the PC as an ordinary USB keyboard:
 
 1. It enumerates as a **USB boot keyboard** with remote wakeup.
 2. While the host sleeps, it runs a **passive BLE scan** on the Pico's CYW43
