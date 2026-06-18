@@ -20,6 +20,11 @@ network adapter** (CDC-NCM) and serves its config page at
 **http://10.7.7.107/**. The page live-lists nearby BLE advertisers with name +
 RSSI so you can pick your device instead of typing a MAC address.
 
+If `10.7.7.x` clashes with your LAN, Settings lets you switch the config page to
+one of a few fixed addresses (`172.31.7.107`, `192.168.137.107`, `10.77.77.107`).
+The choice is saved to flash; **unplug and replug** the dongle for it to take
+effect, then browse to the new address.
+
 > **http://picowake.local/** may also work, but mDNS/Bonjour resolution depends
 > on your OS and isn't reliable everywhere — **use the IP address** if `.local`
 > doesn't resolve.
@@ -89,7 +94,8 @@ Options: `ENABLE_SERIAL` (USB serial console), `ENABLE_VERBOSE`, `WAKE_DEBUG`
 - BTstack (LE-only) passive scanning on the CYW43
 - lwIP (NO_SYS) over NCM with a tiny DHCP server, mDNS responder and httpd
   serving the config page from firmware — no internet, no drivers needed
-- Config (target MAC + enable flag) stored in the last flash sector
+- Config (device list, global/LED toggles, selected subnet) stored in the last
+  flash sector
 
 ## Lineage
 

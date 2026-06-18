@@ -54,17 +54,17 @@ static struct netif netif_data;
 
 #define INIT_IP4(a, b, c, d) {PP_HTONL(LWIP_MAKEU32(a, b, c, d))}
 
-// 10.7.7.104/29: an obscure corner of RFC 1918 space (homes mostly use
-// 192.168.x). The dongle lives at .107; the host PC gets .108 by DHCP. The /29
-// (.104-.111) is small, so it shadows little even if a LAN happens to overlap.
-static const ip4_addr_t ipaddr  = INIT_IP4(10, 7, 7, 107);
-static const ip4_addr_t netmask = INIT_IP4(255, 255, 255, 248);
+// The dongle's address, netmask and the single DHCP lease are all derived at
+// init from the user-selected subnet (config_active_subnet) -- see usb_net_init.
+// Each subnet is a /29 (e.g. 10.7.7.104-.111): the dongle takes .107, the host
+// PC gets .108 by DHCP. A /29 is small, so it shadows little even if a LAN
+// happens to overlap. Selecting another entry takes effect on the next replug.
+static ip4_addr_t ipaddr;
+static ip4_addr_t netmask;
 static const ip4_addr_t gateway = INIT_IP4(0, 0, 0, 0);
 
 static dhcp_entry_t dhcp_entries[] = {
-    {{0}, INIT_IP4(10, 7, 7, 108), 24 * 60 * 60},
-    {{0}, INIT_IP4(10, 7, 7, 109), 24 * 60 * 60},
-    {{0}, INIT_IP4(10, 7, 7, 110), 24 * 60 * 60},
+    {{0}, INIT_IP4(0, 0, 0, 0), 24 * 60 * 60},
 };
 
 static const dhcp_config_t dhcp_config = {
@@ -174,8 +174,14 @@ static void sanitize_name(const char *in, char *out, size_t cap) {
 
 static int json_config(char *out, size_t cap) {
     const Config_body &c = get_config();
-    int n = snprintf(out, cap, "{\"enabled\":%d,\"led_off\":%d,\"version\":\"%s\",\"devices\":[",
-                     c.ble_wake_enabled, c.led_off, PICO_PROGRAM_VERSION_STRING);
+    int n = snprintf(out, cap,
+                     "{\"enabled\":%d,\"led_off\":%d,\"version\":\"%s\",\"subnet\":%d,\"subnets\":[",
+                     c.ble_wake_enabled, c.led_off, PICO_PROGRAM_VERSION_STRING, c.subnet_index);
+    const Subnet_info *tbl = config_subnet_table();
+    for (int i = 0; i < WAKE_SUBNET_COUNT && (size_t) n < cap; i++) {
+        n += snprintf(out + n, cap - n, "%s\"%s\"", i ? "," : "", tbl[i].label);
+    }
+    if ((size_t) n < cap) n += snprintf(out + n, cap - n, "],\"devices\":[");
     for (int i = 0; i < c.device_count && (size_t) n < cap; i++) {
         const Wake_device &d = c.devices[i];
         char name[WAKE_NAME_LEN];
@@ -294,6 +300,9 @@ static void apply_post(char *body) {
             c.ble_wake_enabled = atoi(tok + 8) ? 1 : 0;
         } else if (strncmp(tok, "led_off=", 8) == 0) {
             c.led_off = atoi(tok + 8) ? 1 : 0;
+        } else if (strncmp(tok, "subnet=", 7) == 0) {
+            const int idx = atoi(tok + 7);
+            if (idx >= 0 && idx < WAKE_SUBNET_COUNT) c.subnet_index = (uint8_t) idx;
         } else if (strncmp(tok, "dev=", 4) == 0 && c.device_count < WAKE_MAX_DEVICES) {
             // <MAC>|<0/1>|<label>
             char *mac_s = tok + 4;
@@ -363,6 +372,13 @@ void usb_net_init() {
     tud_network_mac_address[0] = 0x02;
     memcpy(tud_network_mac_address + 1, board_id.id + 3, 5);
 
+    // Derive all addresses from the user-selected subnet. Host = dongle + 1.
+    const Subnet_info &sn = config_active_subnet();
+    IP4_ADDR(&ipaddr, sn.dongle_ip[0], sn.dongle_ip[1], sn.dongle_ip[2], sn.dongle_ip[3]);
+    IP4_ADDR(&netmask, sn.netmask[0], sn.netmask[1], sn.netmask[2], sn.netmask[3]);
+    IP4_ADDR(&dhcp_entries[0].addr, sn.dongle_ip[0], sn.dongle_ip[1], sn.dongle_ip[2],
+             (uint8_t) (sn.dongle_ip[3] + 1));
+
     lwip_init();
 
     netif_data.hwaddr_len = 6;
@@ -386,7 +402,7 @@ void usb_net_init() {
     mdns_resp_add_netif(&netif_data, "picowake");
     httpd_init();
 
-    printf("[NET] config UI at http://10.7.7.107/ (picowake.local best-effort)\n");
+    printf("[NET] config UI at http://%s/ (picowake.local best-effort)\n", sn.label);
 }
 
 void usb_net_task() {
