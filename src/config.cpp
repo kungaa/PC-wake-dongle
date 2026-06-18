@@ -8,10 +8,21 @@
 
 // New magic vs. the DS5-dongle ancestor so stale configs are discarded.
 constexpr uint32_t CONFIG_MAGIC = 0x57414B45; // "WAKE"
-constexpr uint8_t CONFIG_VERSION = 3;         // v2: multi-device list; v3: led_off
+constexpr uint8_t CONFIG_VERSION = 4;         // v2: multi-device list; v3: led_off; v4: subnet_index
 constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
 
 static Config config{};
+
+// Fixed, selectable subnets. All /29; the host (DHCP) gets dongle_ip + 1.
+// Index 0 is the historical default (10.7.7.107) so existing users are
+// unaffected by the upgrade. A fixed list means a user can never pick an
+// address that locks them out of the config page.
+static const Subnet_info subnet_table[WAKE_SUBNET_COUNT] = {
+    {{10, 7, 7, 107},      {255, 255, 255, 248}, "10.7.7.107"},
+    {{172, 31, 7, 107},    {255, 255, 255, 248}, "172.31.7.107"},
+    {{192, 168, 137, 107}, {255, 255, 255, 248}, "192.168.137.107"},
+    {{10, 77, 77, 107},    {255, 255, 255, 248}, "10.77.77.107"},
+};
 
 static_assert(sizeof(Config) <= FLASH_PAGE_SIZE);
 static_assert(CONFIG_FLASH_OFFSET % FLASH_SECTOR_SIZE == 0);
@@ -64,6 +75,9 @@ void config_load() {
     if (config.body.device_count > WAKE_MAX_DEVICES) {
         config.body.device_count = WAKE_MAX_DEVICES;
     }
+    if (config.body.subnet_index >= WAKE_SUBNET_COUNT) {
+        config.body.subnet_index = 0;
+    }
     for (int i = 0; i < config.body.device_count; i++) {
         Wake_device &d = config.body.devices[i];
         if (d.enabled > 1) d.enabled = 0;
@@ -97,4 +111,14 @@ bool config_save() {
 
 Config_body &get_config() {
     return config.body;
+}
+
+const Subnet_info *config_subnet_table() {
+    return subnet_table;
+}
+
+const Subnet_info &config_active_subnet() {
+    uint8_t idx = config.body.subnet_index;
+    if (idx >= WAKE_SUBNET_COUNT) idx = 0;
+    return subnet_table[idx];
 }

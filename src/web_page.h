@@ -1,7 +1,8 @@
 #ifndef WAKE_DONGLE_WEB_PAGE_H
 #define WAKE_DONGLE_WEB_PAGE_H
 
-// Config UI served at http://10.7.7.107/ (or http://picowake.local/, best-effort).
+// Config UI served at the dongle's IP (default http://10.7.7.107/, selectable
+// in Settings) or http://picowake.local/ (best-effort).
 // Single self-contained page; talks to /api/config and /api/scan.
 //
 // Save policy: discrete actions (add/delete device, enable toggles, LED
@@ -46,6 +47,11 @@ i{color:#888}
   <label><input type="checkbox" id="en"> Wake enabled (global)</label>
   <label><input type="checkbox" id="led"> Status LED</label>
 </div>
+<div class="row">
+  <label>Config page address <select id="subnet"></select></label>
+</div>
+<p id="subnetwarn" class="warn" hidden>Saved. <b>Unplug and replug the dongle</b>, then browse to
+the new address above.</p>
 
 <h2>Nearby BLE devices <i style="font-weight:normal;font-size:.8em">(click to add)</i></h2>
 <p class="warn">Tip: power-cycle your gamepad while watching this list and pick the entry that
@@ -56,13 +62,13 @@ appears. Phones and some devices rotate random MAC addresses and will not work r
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>s.replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
-let devs=[],namesDirty=false;
+let devs=[],namesDirty=false,savedSubnet=0;
 
 function setStatus(msg,warn){const st=$('status');st.className=warn?'dirty':'';st.textContent=msg}
 function markNamesDirty(){namesDirty=true;$('save').disabled=false;setStatus('unsaved name changes',true)}
 
 async function save(){
-  let body=`enabled=${$('en').checked?1:0}&led_off=${$('led').checked?0:1}`;
+  let body=`enabled=${$('en').checked?1:0}&led_off=${$('led').checked?0:1}&subnet=${$('subnet').value}`;
   devs.forEach(d=>{
     const name=d.name.replace(/[|]/g,' ').trim()||'Device';
     body+=`&dev=${encodeURIComponent(d.mac+'|'+(d.enabled?1:0)+'|'+name)}`;
@@ -98,6 +104,12 @@ function addDevice(mac,name){
 async function loadCfg(){
   const c=await (await fetch('/api/config')).json();
   $('en').checked=!!c.enabled;$('led').checked=!c.led_off;$('ver').textContent=c.version;
+  const sel=$('subnet');sel.innerHTML='';
+  (c.subnets||[]).forEach((s,i)=>{
+    const o=document.createElement('option');o.value=i;o.textContent='http://'+s+'/'+(i?'':' (default)');
+    sel.appendChild(o);
+  });
+  savedSubnet=c.subnet||0;sel.value=savedSubnet;$('subnetwarn').hidden=true;
   devs=c.devices;namesDirty=false;$('save').disabled=true;setStatus('',false);
   renderSaved();
 }
@@ -120,6 +132,11 @@ async function poll(){
 $('en').onchange=save;
 $('led').onchange=save;
 $('save').onclick=save;
+$('subnet').onchange=async()=>{
+  await save();
+  // The new address only takes effect on the next replug; warn if it changed.
+  if(+$('subnet').value!==savedSubnet){savedSubnet=+$('subnet').value;$('subnetwarn').hidden=false}
+};
 
 loadCfg();poll();setInterval(poll,2000);
 </script></body></html>

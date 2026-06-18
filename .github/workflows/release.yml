@@ -1,10 +1,19 @@
 name: Build release firmware
 
-# Builds every board UF2 and attaches them to a release (see build-firmware.yml).
-# Normally fires when a GitHub Release is published; also runnable manually for a
-# given tag (the release: published event is not always reliable when the release
-# is created via API/CLI).
+# Publishes a GitHub Release with every board UF2 attached (see build-firmware.yml).
+#
+# Triggers, in order of how you'll normally use it:
+#   - push a tag matching v* (e.g. v1.1.0): the release is created automatically
+#     with GitHub-generated notes, then the UF2s are built and attached. This is
+#     the hands-off path -- tag, push, done.
+#   - release: published -- if you instead create the release by hand in the UI.
+#   - workflow_dispatch -- rebuild/re-attach UF2s for an existing tag manually
+#     (the release: published event is not always reliable when the release was
+#     created via the API/CLI).
 on:
+  push:
+    tags:
+      - "v*"
   release:
     types:
       - published
@@ -18,12 +27,45 @@ on:
 permissions:
   contents: write
 
+# A single tag should not be released twice concurrently (e.g. if both the tag
+# push and a manual dispatch land together).
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  # On a tag push, create the release first so build-firmware has something to
+  # upload to. Skipped for the release:published and workflow_dispatch paths
+  # (the release already exists then). --generate-notes fills in the changelog
+  # from commits/PRs since the previous tag; nothing happens if it already exists.
+  create-release:
+    name: Create GitHub release for tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; leaving it as-is."
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$TAG" \
+              --generate-notes
+          fi
+
   build:
     name: Build and upload release UF2
+    needs: create-release
+    # needs.create-release is skipped on non-push triggers; don't let that skip
+    # this job too.
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     uses: ./.github/workflows/build-firmware.yml
     with:
-      ref: ${{ github.event.release.tag_name || inputs.tag }}
-      version: ${{ github.event.release.tag_name || inputs.tag }}
-      asset_suffix: -${{ github.event.release.tag_name || inputs.tag }}
-      upload_tag: ${{ github.event.release.tag_name || inputs.tag }}
+      ref: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+      version: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+      asset_suffix: -${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+      upload_tag: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
