@@ -8,20 +8,21 @@
 
 // New magic vs. the DS5-dongle ancestor so stale configs are discarded.
 constexpr uint32_t CONFIG_MAGIC = 0x57414B45; // "WAKE"
-constexpr uint8_t CONFIG_VERSION = 4;         // v2: multi-device list; v3: led_off; v4: subnet_index
+// v2: multi-device list; v3: led_off; v4: subnet_index; v5: custom_ip
+constexpr uint8_t CONFIG_VERSION = 5;
 constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
 
 static Config config{};
 
-// Fixed, selectable subnets. All /29; the host (DHCP) gets dongle_ip + 1.
+// Vetted, selectable subnet presets. All /29; the host (DHCP) gets dongle_ip + 1.
 // Index 0 is the historical default (10.7.7.107) so existing users are
-// unaffected by the upgrade. A fixed list means a user can never pick an
-// address that locks them out of the config page.
+// unaffected by the upgrade. A fixed list means a user can never pick a preset
+// that locks them out of the config page; WAKE_SUBNET_CUSTOM (below) is the
+// escape hatch for a user-entered IP, gated by config_ip_is_valid().
 static const Subnet_info subnet_table[WAKE_SUBNET_COUNT] = {
     {{10, 7, 7, 107},      {255, 255, 255, 248}, "10.7.7.107"},
     {{172, 31, 7, 107},    {255, 255, 255, 248}, "172.31.7.107"},
     {{192, 168, 137, 107}, {255, 255, 255, 248}, "192.168.137.107"},
-    {{10, 77, 77, 107},    {255, 255, 255, 248}, "10.77.77.107"},
 };
 
 static_assert(sizeof(Config) <= FLASH_PAGE_SIZE);
@@ -44,6 +45,22 @@ static uint32_t calc_config_crc(const Config &con) {
 
 static const Config *flash_config() {
     return reinterpret_cast<const Config *>(XIP_BASE + CONFIG_FLASH_OFFSET);
+}
+
+bool config_ip_is_valid(const uint8_t ip[4]) {
+    const uint8_t a = ip[0], b = ip[1], d = ip[3];
+    const bool rfc1918 =
+        (a == 10) ||
+        (a == 172 && b >= 16 && b <= 31) ||
+        (a == 192 && b == 168);
+    if (!rfc1918) return false;
+    // Keep the dongle host octet in [1,252] so its /29 (network = d & ~7) has
+    // room for the +1 host lease without hitting .255 broadcast.
+    if (d < 1 || d > 252) return false;
+    const uint8_t net = d & 0xF8; // /29 network base
+    if (d == net) return false;       // network address
+    if (d == (net + 7)) return false; // /29 broadcast
+    return true;
 }
 
 static void config_defaults() {
@@ -75,8 +92,16 @@ void config_load() {
     if (config.body.device_count > WAKE_MAX_DEVICES) {
         config.body.device_count = WAKE_MAX_DEVICES;
     }
-    if (config.body.subnet_index >= WAKE_SUBNET_COUNT) {
+    if (config.body.subnet_index > WAKE_SUBNET_MAX) {
         config.body.subnet_index = 0;
+    }
+    // If "custom IP" is selected, the stored address must be a valid private
+    // host address; otherwise fall back to the default preset so the page
+    // stays reachable (the safety net behind the custom-IP escape hatch).
+    if (config.body.subnet_index == WAKE_SUBNET_CUSTOM &&
+        !config_ip_is_valid(config.body.custom_ip)) {
+        config.body.subnet_index = 0;
+        printf("[Config] custom_ip invalid; using default preset\n");
     }
     for (int i = 0; i < config.body.device_count; i++) {
         Wake_device &d = config.body.devices[i];

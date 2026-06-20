@@ -55,10 +55,11 @@ static struct netif netif_data;
 #define INIT_IP4(a, b, c, d) {PP_HTONL(LWIP_MAKEU32(a, b, c, d))}
 
 // The dongle's address, netmask and the single DHCP lease are all derived at
-// init from the user-selected subnet (config_active_subnet) -- see usb_net_init.
-// Each subnet is a /29 (e.g. 10.7.7.104-.111): the dongle takes .107, the host
-// PC gets .108 by DHCP. A /29 is small, so it shadows little even if a LAN
-// happens to overlap. Selecting another entry takes effect on the next replug.
+// init from the user-selected subnet -- see build_subnet()/usb_net_init. Each
+// subnet is a /29 (e.g. 10.7.7.104-.111): the dongle takes .107 (or the custom
+// host octet), the host PC gets +1 by DHCP. A /29 is small, so it shadows
+// little even if a LAN happens to overlap. Selecting another entry takes
+// effect on the next replug.
 static ip4_addr_t ipaddr;
 static ip4_addr_t netmask;
 static const ip4_addr_t gateway = INIT_IP4(0, 0, 0, 0);
@@ -75,6 +76,28 @@ static const dhcp_config_t dhcp_config = {
     sizeof(dhcp_entries) / sizeof(dhcp_entries[0]),
     dhcp_entries,
 };
+
+// Label shown in log/JSON when a custom IP is active (presets use Subnet_info::label).
+static char custom_label[16];
+
+// Populate ipaddr/netmask/dhcp_entries from the selected subnet. For presets
+// this just copies the table entry; for WAKE_SUBNET_CUSTOM the dongle takes
+// the user-entered octets and the host lease is dongle+1 in the same /29.
+static const char *build_subnet(uint8_t idx, const uint8_t custom_ip[4]) {
+    uint8_t da, db, dc, dd;
+    if (idx == WAKE_SUBNET_CUSTOM && config_ip_is_valid(custom_ip)) {
+        da = custom_ip[0]; db = custom_ip[1]; dc = custom_ip[2]; dd = custom_ip[3];
+        snprintf(custom_label, sizeof(custom_label), "%u.%u.%u.%u", da, db, dc, dd);
+    } else {
+        const Subnet_info &sn = config_active_subnet();
+        da = sn.dongle_ip[0]; db = sn.dongle_ip[1]; dc = sn.dongle_ip[2]; dd = sn.dongle_ip[3];
+        snprintf(custom_label, sizeof(custom_label), "%s", sn.label);
+    }
+    IP4_ADDR(&ipaddr, da, db, dc, dd);
+    IP4_ADDR(&netmask, 255, 255, 255, 248); // /29
+    IP4_ADDR(&dhcp_entries[0].addr, da, db, dc, (uint8_t) (dd + 1));
+    return custom_label;
+}
 
 static err_t linkoutput_fn(struct netif *netif, struct pbuf *p) {
     (void) netif;
@@ -175,8 +198,10 @@ static void sanitize_name(const char *in, char *out, size_t cap) {
 static int json_config(char *out, size_t cap) {
     const Config_body &c = get_config();
     int n = snprintf(out, cap,
-                     "{\"enabled\":%d,\"led_off\":%d,\"version\":\"%s\",\"subnet\":%d,\"subnets\":[",
-                     c.ble_wake_enabled, c.led_off, PICO_PROGRAM_VERSION_STRING, c.subnet_index);
+                     "{\"enabled\":%d,\"led_off\":%d,\"version\":\"%s\",\"subnet\":%d,"
+                     "\"custom_ip\":\"%u.%u.%u.%u\",\"subnets\":[",
+                     c.ble_wake_enabled, c.led_off, PICO_PROGRAM_VERSION_STRING, c.subnet_index,
+                     c.custom_ip[0], c.custom_ip[1], c.custom_ip[2], c.custom_ip[3]);
     const Subnet_info *tbl = config_subnet_table();
     for (int i = 0; i < WAKE_SUBNET_COUNT && (size_t) n < cap; i++) {
         n += snprintf(out + n, cap - n, "%s\"%s\"", i ? "," : "", tbl[i].label);
@@ -302,7 +327,18 @@ static void apply_post(char *body) {
             c.led_off = atoi(tok + 8) ? 1 : 0;
         } else if (strncmp(tok, "subnet=", 7) == 0) {
             const int idx = atoi(tok + 7);
-            if (idx >= 0 && idx < WAKE_SUBNET_COUNT) c.subnet_index = (uint8_t) idx;
+            if (idx >= 0 && idx <= WAKE_SUBNET_MAX) c.subnet_index = (uint8_t) idx;
+        } else if (strncmp(tok, "custom_ip=", 10) == 0) {
+            // Dotted-quad "a.b.c.d". Parse leniently; config_load() is the real
+            // gate and rejects non-private addresses on next boot/save.
+            unsigned a = 0, b = 0, cc = 0, d = 0;
+            if (sscanf(tok + 10, "%u.%u.%u.%u", &a, &b, &cc, &d) == 4 &&
+                a <= 255 && b <= 255 && cc <= 255 && d <= 255) {
+                c.custom_ip[0] = (uint8_t) a;
+                c.custom_ip[1] = (uint8_t) b;
+                c.custom_ip[2] = (uint8_t) cc;
+                c.custom_ip[3] = (uint8_t) d;
+            }
         } else if (strncmp(tok, "dev=", 4) == 0 && c.device_count < WAKE_MAX_DEVICES) {
             // <MAC>|<0/1>|<label>
             char *mac_s = tok + 4;
@@ -319,6 +355,12 @@ static void apply_post(char *body) {
             snprintf(d.name, sizeof(d.name), "%s", name_s);
             c.device_count++;
         }
+    }
+
+    // Same safety net as config_load(): never persist "custom" with an address
+    // that would lock the user out of the config page.
+    if (c.subnet_index == WAKE_SUBNET_CUSTOM && !config_ip_is_valid(c.custom_ip)) {
+        c.subnet_index = 0;
     }
 
     // The sector erase blocks with interrupts off; feed the watchdog first.
@@ -372,12 +414,10 @@ void usb_net_init() {
     tud_network_mac_address[0] = 0x02;
     memcpy(tud_network_mac_address + 1, board_id.id + 3, 5);
 
-    // Derive all addresses from the user-selected subnet. Host = dongle + 1.
-    const Subnet_info &sn = config_active_subnet();
-    IP4_ADDR(&ipaddr, sn.dongle_ip[0], sn.dongle_ip[1], sn.dongle_ip[2], sn.dongle_ip[3]);
-    IP4_ADDR(&netmask, sn.netmask[0], sn.netmask[1], sn.netmask[2], sn.netmask[3]);
-    IP4_ADDR(&dhcp_entries[0].addr, sn.dongle_ip[0], sn.dongle_ip[1], sn.dongle_ip[2],
-             (uint8_t) (sn.dongle_ip[3] + 1));
+    // Resolve the selected subnet (preset or custom) before bringing up lwIP.
+    // Host = dongle + 1.
+    const Config_body &cfg = get_config();
+    const char *label = build_subnet(cfg.subnet_index, cfg.custom_ip);
 
     lwip_init();
 
@@ -402,7 +442,7 @@ void usb_net_init() {
     mdns_resp_add_netif(&netif_data, "picowake");
     httpd_init();
 
-    printf("[NET] config UI at http://%s/ (picowake.local best-effort)\n", sn.label);
+    printf("[NET] config UI at http://%s/ (picowake.local best-effort)\n", label);
 }
 
 void usb_net_task() {

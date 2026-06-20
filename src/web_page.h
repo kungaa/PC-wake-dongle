@@ -21,6 +21,8 @@ th,td{padding:.4rem .5rem;text-align:left;border-bottom:1px solid #333;font-size
 #nearby tbody tr{cursor:pointer}#nearby tbody tr:hover{background:#222}
 tr.saved{opacity:.45}
 input[type=text]{background:#222;border:1px solid #444;color:#eee;padding:.35rem;border-radius:4px;width:11em}
+#customip_wrap{margin-top:.4rem}
+.hint{color:#888;font-size:.82rem}
 button{background:#2563eb;border:0;color:#fff;padding:.45rem 1rem;border-radius:4px;cursor:pointer;font-size:.95rem}
 button:disabled{background:#333;color:#777;cursor:default}
 button.del{background:#7f1d1d;padding:.25rem .6rem}
@@ -50,6 +52,16 @@ i{color:#888}
 <div class="row">
   <label>Config page address <select id="subnet"></select></label>
 </div>
+<div id="customip_wrap" hidden>
+  <input id="custom_ip" type="text" inputmode="decimal" placeholder="e.g. 10.20.30.107"
+         pattern="\d{1,3}(\.\d{1,3}){3}">
+  <button id="custom_ip_save">Save</button>
+  <div class="hint">&#9888;&#65039; <b>Advanced.</b> Must be a <b>private</b> address
+  (<code>10.x.x.x</code>, <code>172.16&ndash;31.x.x</code>, or <code>192.168.x.x</code>), and not a
+  <code>.0</code>/<code>.255</code>. If you enter something unreachable the dongle falls back to the
+  default address &mdash; you won't get locked out, but you may not land where you expected. The PC
+  gets a DHCP lease in the same <code>/29</code> block.</div>
+</div>
 <p id="subnetwarn" class="warn" hidden>Saved. <b>Unplug and replug the dongle</b>, then browse to
 the new address above.</p>
 
@@ -66,9 +78,14 @@ let devs=[],namesDirty=false,savedSubnet=0;
 
 function setStatus(msg,warn){const st=$('status');st.className=warn?'dirty':'';st.textContent=msg}
 function markNamesDirty(){namesDirty=true;$('save').disabled=false;setStatus('unsaved name changes',true)}
+function toggleCustomIp(){
+  const sel=$('subnet');
+  $('customip_wrap').hidden=(+sel.value!==sel.options.length-1);
+}
 
 async function save(){
-  let body=`enabled=${$('en').checked?1:0}&led_off=${$('led').checked?0:1}&subnet=${$('subnet').value}`;
+  let body=`enabled=${$('en').checked?1:0}&led_off=${$('led').checked?0:1}&subnet=${$('subnet').value}`+
+    `&custom_ip=${encodeURIComponent($('custom_ip').value.trim())}`;
   devs.forEach(d=>{
     const name=d.name.replace(/[|]/g,' ').trim()||'Device';
     body+=`&dev=${encodeURIComponent(d.mac+'|'+(d.enabled?1:0)+'|'+name)}`;
@@ -109,7 +126,12 @@ async function loadCfg(){
     const o=document.createElement('option');o.value=i;o.textContent='http://'+s+'/'+(i?'':' (default)');
     sel.appendChild(o);
   });
+  const customOpt=document.createElement('option');
+  customOpt.value=(c.subnets||[]).length;customOpt.textContent='Custom…';
+  sel.appendChild(customOpt);
   savedSubnet=c.subnet||0;sel.value=savedSubnet;$('subnetwarn').hidden=true;
+  if(c.custom_ip&&c.custom_ip!=='0.0.0.0')$('custom_ip').value=c.custom_ip;
+  toggleCustomIp();
   devs=c.devices;namesDirty=false;$('save').disabled=true;setStatus('',false);
   renderSaved();
 }
@@ -133,10 +155,17 @@ $('en').onchange=save;
 $('led').onchange=save;
 $('save').onclick=save;
 $('subnet').onchange=async()=>{
+  toggleCustomIp();
   await save();
   // The new address only takes effect on the next replug; warn if it changed.
   if(+$('subnet').value!==savedSubnet){savedSubnet=+$('subnet').value;$('subnetwarn').hidden=false}
 };
+async function saveCustomIp(){
+  await save();
+  $('subnetwarn').hidden=false;
+}
+$('custom_ip_save').onclick=saveCustomIp;
+$('custom_ip').addEventListener('keydown',e=>{if(e.key==='Enter')saveCustomIp()});
 
 loadCfg();poll();setInterval(poll,2000);
 </script></body></html>

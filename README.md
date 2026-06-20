@@ -23,9 +23,9 @@ network adapter** (CDC-NCM) and serves its config page at
 RSSI so you can pick your device instead of typing a MAC address.
 
 If `10.7.7.x` clashes with your LAN, Settings lets you switch the config page to
-one of a few fixed addresses (`172.31.7.107`, `192.168.137.107`, `10.77.77.107`).
-The choice is saved to flash; **unplug and replug** the dongle for it to take
-effect, then browse to the new address.
+one of a few fixed addresses (`172.31.7.107`, `192.168.137.107`), or enter a
+custom private IP of your own. The choice is saved to flash; **unplug and
+replug** the dongle for it to take effect, then browse to the new address.
 
 > **http://picowake.local/** may also work, but mDNS/Bonjour resolution depends
 > on your OS and isn't reliable everywhere — **use the IP address** if `.local`
