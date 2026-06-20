@@ -22,6 +22,11 @@ struct __attribute__((packed)) Wake_device {
 #define WAKE_SUBNET_CUSTOM WAKE_SUBNET_COUNT // 3 == custom IP
 #define WAKE_SUBNET_MAX    WAKE_SUBNET_CUSTOM
 
+// Wi-Fi credential / Wake-on-LAN target sizes. SSID max is 32 bytes (+ NUL);
+// WPA2 passphrase max is 63 bytes (+ NUL).
+#define WAKE_SSID_LEN 33
+#define WAKE_PASS_LEN 64
+
 struct __attribute__((packed)) Config_body {
     uint8_t config_version;
     uint8_t ble_wake_enabled; // bool: global wake switch
@@ -32,6 +37,15 @@ struct __attribute__((packed)) Config_body {
     // Must be a private (RFC-1918) host address; validated in config_load().
     // 0.0.0.0 means "unset" -> falls back to the default preset.
     uint8_t custom_ip[4];
+
+    // Wake-on-LAN over home Wi-Fi (S5 wake path). When wol_enabled is 0 the
+    // Wi-Fi radio is never brought up (BT-only, zero behavior change).
+    uint8_t wol_enabled;            // bool: join Wi-Fi and send WOL for S5 wake
+    char    wifi_ssid[WAKE_SSID_LEN];
+    char    wifi_pass[WAKE_PASS_LEN];
+    uint8_t wol_target_ip[4];       // target PC's LAN IP (for ARP resolve / directed bcast)
+    uint8_t wol_target_mac[6];      // target PC's NIC MAC (the WOL magic-packet payload)
+
     Wake_device devices[WAKE_MAX_DEVICES];
 };
 

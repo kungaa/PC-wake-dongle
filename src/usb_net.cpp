@@ -36,6 +36,7 @@
 #include "ble.h"
 #include "config.h"
 #include "web_page.h"
+#include "wifi.h"
 
 // How long one /api/scan poll keeps the BLE scanner alive. The page polls
 // every 2 s, so scanning stops ~15 s after the page is closed.
@@ -197,11 +198,26 @@ static void sanitize_name(const char *in, char *out, size_t cap) {
 
 static int json_config(char *out, size_t cap) {
     const Config_body &c = get_config();
+    char ssid[WAKE_SSID_LEN];
+    sanitize_name(c.wifi_ssid, ssid, sizeof(ssid));
     int n = snprintf(out, cap,
                      "{\"enabled\":%d,\"led_off\":%d,\"version\":\"%s\",\"subnet\":%d,"
-                     "\"custom_ip\":\"%u.%u.%u.%u\",\"subnets\":[",
+                     "\"custom_ip\":\"%u.%u.%u.%u\","
+                     // Wake-on-LAN block. The password is deliberately NEVER
+                     // returned; "wifi_pass_set" tells the UI whether one is
+                     // stored (so it can show "leave blank to keep").
+                     "\"wol_enabled\":%d,\"wifi_ssid\":\"%s\",\"wifi_pass_set\":%d,"
+                     "\"wifi_status\":\"%s\","
+                     "\"wol_target_ip\":\"%u.%u.%u.%u\","
+                     "\"wol_target_mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\","
+                     "\"subnets\":[",
                      c.ble_wake_enabled, c.led_off, PICO_PROGRAM_VERSION_STRING, c.subnet_index,
-                     c.custom_ip[0], c.custom_ip[1], c.custom_ip[2], c.custom_ip[3]);
+                     c.custom_ip[0], c.custom_ip[1], c.custom_ip[2], c.custom_ip[3],
+                     c.wol_enabled, ssid, c.wifi_pass[0] ? 1 : 0,
+                     wifi_status_str(),
+                     c.wol_target_ip[0], c.wol_target_ip[1], c.wol_target_ip[2], c.wol_target_ip[3],
+                     c.wol_target_mac[0], c.wol_target_mac[1], c.wol_target_mac[2],
+                     c.wol_target_mac[3], c.wol_target_mac[4], c.wol_target_mac[5]);
     const Subnet_info *tbl = config_subnet_table();
     for (int i = 0; i < WAKE_SUBNET_COUNT && (size_t) n < cap; i++) {
         n += snprintf(out + n, cap - n, "%s\"%s\"", i ? "," : "", tbl[i].label);
@@ -249,13 +265,20 @@ extern "C" int fs_open_custom(struct fs_file *file, const char *name) {
                          WEB_PAGE, sizeof(WEB_PAGE) - 1);
     }
     if (strcmp(name, "/api/config") == 0) {
-        static char body[1024];
+        static char body[1280]; // grew for the WOL block (SSID, status, target)
         const int len = json_config(body, sizeof(body));
         return make_file(file, "200 OK", "application/json", body, len);
     }
     if (strcmp(name, "/api/scan") == 0) {
         static char body[2304];
         const int len = json_scan(body, sizeof(body));
+        return make_file(file, "200 OK", "application/json", body, len);
+    }
+    if (strcmp(name, "/api/wifi-scan") == 0) {
+        // Kick a fresh AP scan (no-op if one's running) and return what we have.
+        wifi_scan_start();
+        static char body[1024];
+        const int len = wifi_scan_json(body, sizeof(body));
         return make_file(file, "200 OK", "application/json", body, len);
     }
     if (strcmp(name, "/404.html") == 0) {
@@ -288,6 +311,7 @@ extern "C" int fs_read_custom(struct fs_file *file, char *buffer, int count) {
 static char post_buf[POST_BUFSIZE];
 static u16_t post_pos;
 static void *post_conn;
+static bool post_is_resolve; // which endpoint the in-flight POST targets
 
 static void url_decode(char *s) {
     char *out = s;
@@ -339,6 +363,25 @@ static void apply_post(char *body) {
                 c.custom_ip[2] = (uint8_t) cc;
                 c.custom_ip[3] = (uint8_t) d;
             }
+        } else if (strncmp(tok, "wol_enabled=", 12) == 0) {
+            c.wol_enabled = atoi(tok + 12) ? 1 : 0;
+        } else if (strncmp(tok, "wifi_ssid=", 10) == 0) {
+            snprintf(c.wifi_ssid, sizeof(c.wifi_ssid), "%s", tok + 10);
+        } else if (strncmp(tok, "wifi_pass=", 10) == 0) {
+            // Only overwrite the stored password when a non-empty value is
+            // submitted, so the UI can show "leave blank to keep current".
+            if (tok[10]) snprintf(c.wifi_pass, sizeof(c.wifi_pass), "%s", tok + 10);
+        } else if (strncmp(tok, "wol_target_ip=", 14) == 0) {
+            unsigned a = 0, b = 0, cc = 0, d = 0;
+            if (sscanf(tok + 14, "%u.%u.%u.%u", &a, &b, &cc, &d) == 4 &&
+                a <= 255 && b <= 255 && cc <= 255 && d <= 255) {
+                c.wol_target_ip[0] = (uint8_t) a;
+                c.wol_target_ip[1] = (uint8_t) b;
+                c.wol_target_ip[2] = (uint8_t) cc;
+                c.wol_target_ip[3] = (uint8_t) d;
+            }
+        } else if (strncmp(tok, "wol_target_mac=", 15) == 0) {
+            parse_mac(tok + 15, c.wol_target_mac); // leaves prior value if unparseable
         } else if (strncmp(tok, "dev=", 4) == 0 && c.device_count < WAKE_MAX_DEVICES) {
             // <MAC>|<0/1>|<label>
             char *mac_s = tok + 4;
@@ -370,6 +413,45 @@ static void apply_post(char *body) {
            c.ble_wake_enabled ? "enabled" : "disabled", c.device_count);
 }
 
+// POST /api/wol-resolve -- body "ip=a.b.c.d". ARP-resolve the target's MAC on
+// the Wi-Fi netif and store it into config (the UI re-reads /api/config to show
+// the filled-in MAC). Best-effort: a miss leaves the stored MAC unchanged and
+// issues an ARP query so a retry can succeed.
+static void apply_resolve(char *body) {
+    uint8_t ip[4] = {0};
+    bool have_ip = false;
+    for (char *tok = strtok(body, "&"); tok; tok = strtok(nullptr, "&")) {
+        if (strncmp(tok, "ip=", 3) == 0) {
+            unsigned a = 0, b = 0, cc = 0, d = 0;
+            if (sscanf(tok + 3, "%u.%u.%u.%u", &a, &b, &cc, &d) == 4 &&
+                a <= 255 && b <= 255 && cc <= 255 && d <= 255) {
+                ip[0] = (uint8_t) a; ip[1] = (uint8_t) b;
+                ip[2] = (uint8_t) cc; ip[3] = (uint8_t) d;
+                have_ip = true;
+            }
+        }
+    }
+    if (!have_ip) return;
+
+    Config_body &c = get_config();
+    memcpy(c.wol_target_ip, ip, 4);
+
+    uint8_t mac[6];
+    if (wifi_resolve_mac(ip, mac)) {
+        memcpy(c.wol_target_mac, mac, 6);
+        watchdog_update();
+        config_save();
+        printf("[NET] resolved %u.%u.%u.%u -> %02X:%02X:%02X:%02X:%02X:%02X\n",
+               ip[0], ip[1], ip[2], ip[3], mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        // Persist the IP even on a miss so a retry has it; MAC stays as-is.
+        watchdog_update();
+        config_save();
+        printf("[NET] ARP miss for %u.%u.%u.%u (query issued; retry)\n",
+               ip[0], ip[1], ip[2], ip[3]);
+    }
+}
+
 extern "C" err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
                                   u16_t http_request_len, int content_len, char *response_uri,
                                   u16_t response_uri_len, u8_t *post_auto_wnd) {
@@ -378,10 +460,13 @@ extern "C" err_t httpd_post_begin(void *connection, const char *uri, const char 
     (void) response_uri;
     (void) response_uri_len;
     (void) post_auto_wnd;
-    if (strcmp(uri, "/api/config") != 0 || content_len >= POST_BUFSIZE) return ERR_VAL;
+    const bool is_config  = strcmp(uri, "/api/config") == 0;
+    const bool is_resolve = strcmp(uri, "/api/wol-resolve") == 0;
+    if ((!is_config && !is_resolve) || content_len >= POST_BUFSIZE) return ERR_VAL;
     if (post_conn) return ERR_USE; // one POST at a time
     post_conn = connection;
     post_pos = 0;
+    post_is_resolve = is_resolve;
     return ERR_OK;
 }
 
@@ -399,7 +484,12 @@ extern "C" err_t httpd_post_receive_data(void *connection, struct pbuf *p) {
 extern "C" void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) {
     if (connection != post_conn) return;
     post_conn = nullptr;
-    apply_post(post_buf);
+    if (post_is_resolve) {
+        apply_resolve(post_buf);
+    } else {
+        apply_post(post_buf);
+    }
+    // Both endpoints answer with the fresh config JSON.
     snprintf(response_uri, response_uri_len, "/api/config");
 }
 
@@ -414,12 +504,14 @@ void usb_net_init() {
     tud_network_mac_address[0] = 0x02;
     memcpy(tud_network_mac_address + 1, board_id.id + 3, 5);
 
-    // Resolve the selected subnet (preset or custom) before bringing up lwIP.
-    // Host = dongle + 1.
+    // Resolve the selected subnet (preset or custom). Host = dongle + 1.
     const Config_body &cfg = get_config();
     const char *label = build_subnet(cfg.subnet_index, cfg.custom_ip);
 
-    lwip_init();
+    // NOTE: lwip_init() is NOT called here. With CYW43_LWIP=1 the Pico SDK runs
+    // lwip_init() once inside cyw43_arch_init() (lwip_nosys_init), which main()
+    // calls before us. Calling it again would reset the stack and drop the
+    // cyw43 Wi-Fi netif. We just add our NCM netif onto the live stack.
 
     netif_data.hwaddr_len = 6;
     memcpy(netif_data.hwaddr, tud_network_mac_address, 6);

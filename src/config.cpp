@@ -8,9 +8,17 @@
 
 // New magic vs. the DS5-dongle ancestor so stale configs are discarded.
 constexpr uint32_t CONFIG_MAGIC = 0x57414B45; // "WAKE"
-// v2: multi-device list; v3: led_off; v4: subnet_index; v5: custom_ip
-constexpr uint8_t CONFIG_VERSION = 5;
+// v2: multi-device list; v3: led_off; v4: subnet_index; v5: custom_ip;
+// v6: wol_enabled + Wi-Fi creds + WOL target (grew Config past one flash page)
+constexpr uint8_t CONFIG_VERSION = 6;
 constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
+
+// Config no longer fits one 256-byte flash page (the Wi-Fi creds pushed it to
+// ~343 B), so we program as many whole pages as it spans. flash_range_program
+// must be called with a multiple of FLASH_PAGE_SIZE; the whole 4 KB sector is
+// already erased in config_save(), so writing extra pages is free.
+constexpr uint32_t CONFIG_WRITE_SIZE =
+    ((sizeof(Config) + FLASH_PAGE_SIZE - 1) / FLASH_PAGE_SIZE) * FLASH_PAGE_SIZE;
 
 static Config config{};
 
@@ -25,7 +33,8 @@ static const Subnet_info subnet_table[WAKE_SUBNET_COUNT] = {
     {{192, 168, 137, 107}, {255, 255, 255, 248}, "192.168.137.107"},
 };
 
-static_assert(sizeof(Config) <= FLASH_PAGE_SIZE);
+static_assert(sizeof(Config) <= FLASH_SECTOR_SIZE);
+static_assert(CONFIG_WRITE_SIZE <= FLASH_SECTOR_SIZE);
 static_assert(CONFIG_FLASH_OFFSET % FLASH_SECTOR_SIZE == 0);
 
 static uint32_t crc32(const uint8_t *data, size_t size) {
@@ -103,6 +112,13 @@ void config_load() {
         config.body.subnet_index = 0;
         printf("[Config] custom_ip invalid; using default preset\n");
     }
+    if (config.body.wol_enabled > 1) {
+        config.body.wol_enabled = 0;
+    }
+    // Defensive: guarantee the credential strings are NUL-terminated so corrupt
+    // flash can never yield an unbounded C string (target IP/MAC need no clamp).
+    config.body.wifi_ssid[WAKE_SSID_LEN - 1] = 0;
+    config.body.wifi_pass[WAKE_PASS_LEN - 1] = 0;
     for (int i = 0; i < config.body.device_count; i++) {
         Wake_device &d = config.body.devices[i];
         if (d.enabled > 1) d.enabled = 0;
@@ -115,7 +131,7 @@ void config_load() {
 
 bool config_save() {
     config.crc32 = calc_config_crc(config);
-    alignas(4) uint8_t page[FLASH_PAGE_SIZE];
+    alignas(4) uint8_t page[CONFIG_WRITE_SIZE];
     memset(page, 0xff, sizeof(page));
     memcpy(page, &config, sizeof(Config));
 

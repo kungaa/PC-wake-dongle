@@ -22,6 +22,7 @@
 #include "config.h"
 #include "usb_net.h"
 #include "wake.h"
+#include "wifi.h"
 
 // LED: solid while the host is up, 1 Hz blink while scanning, off otherwise
 // (or always off when disabled in config). The LED sits behind the CYW43 SPI
@@ -58,14 +59,23 @@ int main() {
 
     config_load();
     wake_init();
-    usb_net_init();
 
+    // cyw43_arch_init() must run BEFORE usb_net_init(): with CYW43_LWIP=1 the
+    // arch layer performs the one-and-only lwip_init() (via lwip_nosys_init).
+    // usb_net_init() then just adds its NCM netif onto the live stack. Doing it
+    // the other way round makes the arch layer re-run lwip_init() and wipe the
+    // NCM netif/httpd/dhserver -- which stops the config adapter enumerating.
     if (cyw43_arch_init()) {
         printf("Failed to initialise CYW43\n");
         return 1;
     }
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
+
+    usb_net_init();
     ble_init();
+    // Wi-Fi STA for the Wake-on-LAN path. No-op on the radio unless wol_enabled
+    // is set in config; must follow cyw43_arch_init().
+    wifi_init();
 
 #if !ENABLE_SERIAL
     if (watchdog_caused_reboot()) {
@@ -82,7 +92,15 @@ int main() {
         tud_task();
         usb_net_task();
         ble_task();
+        wifi_task();
         wake_task();
+        // Deferred Wake-on-LAN send (requested from the BLE callback in
+        // wake_trigger; done here in the main loop, out of that callback).
+        if (wake_wol_pending()) {
+            uint8_t mac[6];
+            wake_get_wol_mac(mac);
+            wifi_send_wol(mac);
+        }
         led_task();
     }
 }

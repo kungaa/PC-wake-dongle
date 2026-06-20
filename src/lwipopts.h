@@ -12,7 +12,7 @@
 #define MEM_SIZE                    8000
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
-#define MEMP_NUM_UDP_PCB            6
+#define MEMP_NUM_UDP_PCB            8   // +DHCP client (Wi-Fi STA) and the WOL sender
 #define PBUF_POOL_SIZE              8
 
 #define LWIP_ARP                    1
@@ -20,7 +20,11 @@
 #define LWIP_ICMP                   1
 #define LWIP_RAW                    0
 #define LWIP_UDP                    1
-#define LWIP_DHCP                   0   // we are the DHCP *server* (dhserver.c, raw UDP)
+// DHCP *client* (port 68): used by the Wi-Fi STA netif to get a LAN address for
+// the Wake-on-LAN path. The NCM netif is statically configured (no dhcp_start
+// on it), and the NCM-side DHCP *server* is a separate raw-UDP impl (dhserver.c,
+// port 67) -- the two coexist.
+#define LWIP_DHCP                   1
 #define LWIP_DNS                    0   // deliberately no DNS: never hijack host lookups
 #define LWIP_IGMP                   1   // mDNS joins a multicast group
 
