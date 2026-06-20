@@ -69,6 +69,7 @@ add_executable(pc-wake-dongle
         src/main.cpp
         src/wake.cpp
         src/ble.cpp
+        src/wifi.cpp
         src/config.cpp
         src/usb_descriptors.cpp
         src/usb_net.cpp
@@ -83,8 +84,10 @@ target_include_directories(pc-wake-dongle PUBLIC
 )
 
 target_compile_definitions(pc-wake-dongle PRIVATE
-        # lwIP runs over the USB NCM interface only; the CYW43 is BT-only.
-        CYW43_LWIP=0
+        # lwIP runs over BOTH the USB NCM interface and the CYW43 Wi-Fi STA
+        # netif (the Wake-on-LAN path). CYW43_LWIP=1 lets the cyw43_arch driver
+        # own a Wi-Fi netif; the NCM netif is still added by hand in usb_net.cpp.
+        CYW43_LWIP=1
         ENABLE_SERIAL=${ENABLE_SERIAL_VALUE}
         ENABLE_VERBOSE=${ENABLE_VERBOSE_VALUE}
         PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0
@@ -109,7 +112,7 @@ target_link_libraries(pc-wake-dongle
         pico_unique_id
         hardware_watchdog
         hardware_flash
-        pico_cyw43_arch_poll
+        pico_cyw43_arch_lwip_poll
         pico_btstack_ble
         pico_btstack_cyw43
         pico_lwip_nosys

@@ -98,7 +98,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             gap_event_advertising_report_get_address(packet, addr);
 
             const Config_body &cfg = get_config();
-            if (cfg.ble_wake_enabled && host_suspended) {
+            // Trigger when the host isn't fully up: suspended (S3 -> F15 path)
+            // or unmounted (S5 soft-off -> Wake-on-LAN path). wake_trigger()
+            // picks the right path based on the observed USB state.
+            if (cfg.ble_wake_enabled && (host_suspended || !tud_mounted())) {
                 for (int i = 0; i < cfg.device_count; i++) {
                     if (cfg.devices[i].enabled && memcmp(addr, cfg.devices[i].mac, 6) == 0) {
                         printf("[BLE] target %s (%s) seen, waking host\n",

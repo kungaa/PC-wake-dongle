@@ -22,6 +22,8 @@ network adapter** (CDC-NCM) and serves its config page at
 **http://10.7.7.107/**. The page live-lists nearby BLE advertisers with name +
 RSSI so you can pick your device instead of typing a MAC address.
 
+![Config page](assets/webconfig.png)
+
 If `10.7.7.x` clashes with your LAN, Settings lets you switch the config page to
 one of a few fixed addresses (`172.31.7.107`, `192.168.137.107`), or enter a
 custom private IP of your own. The choice is saved to flash; **unplug and
@@ -30,6 +32,15 @@ replug** the dongle for it to take effect, then browse to the new address.
 > **http://picowake.local/** may also work, but mDNS/Bonjour resolution depends
 > on your OS and isn't reliable everywhere — **use the IP address** if `.local`
 > doesn't resolve.
+
+### Wake-on-LAN fallback for soft-off (S5)
+
+Wake-from-S5 over USB-HID only works on a handful of motherboards (mainly
+ASRock and MSI). As a fallback, the dongle can join your home Wi-Fi and send a
+Wake-on-LAN magic packet to your PC whenever it would otherwise try to wake it
+— covering the many more motherboards that support WOL from S5 instead. It's
+off by default and configured entirely from the same web page. See
+[USER_GUIDE.md](USER_GUIDE.md) for setup and BIOS/OS requirements.
 
 ## What works / what doesn't
 
@@ -40,8 +51,11 @@ replug** the dongle for it to take effect, then browse to the new address.
   a passive observer cannot see. That's a protocol limitation, not a bug.
 - ⚠️ Devices with **rotating random MAC addresses** (phones, some earbuds)
   won't match reliably.
-- Wake-from-soft-off (S5) requires a motherboard that keeps USB powered in
-  S5 with keyboard wake enabled (check BIOS: "wake on USB keyboard", ErP off).
+- Wake-from-soft-off (S5) over USB-HID requires a motherboard that keeps USB
+  powered in S5 with keyboard wake enabled (check BIOS: "wake on USB
+  keyboard", ErP off) — only a few boards (mainly ASRock/MSI) support this.
+  The Wake-on-LAN fallback above covers more boards; see
+  [USER_GUIDE.md](USER_GUIDE.md).
 
 ## Supported boards
 
