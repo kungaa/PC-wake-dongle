@@ -122,6 +122,10 @@ so the dongle stays powered in S5.</div>
     </div>
     <div class="hint">&#9888;&#65039; The dongle's radio is <b>2.4 GHz only</b> &mdash; pick a 2.4 GHz
     network (5 GHz / 6 GHz networks won't appear or connect).</div>
+    <div class="hint">&#8505;&#65039; <b>Connecting can take a few tries.</b> One radio is shared
+    between Bluetooth (the wake trigger) and Wi-Fi, so the first join may not
+    succeed immediately &mdash; the dongle keeps retrying and will connect within a
+    few seconds. A strong 2.4 GHz signal helps; keep the dongle near the router.</div>
   </div>
   <div class="field">
     <label class="lbl">Target PC</label>

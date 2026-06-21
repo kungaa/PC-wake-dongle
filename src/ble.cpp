@@ -24,6 +24,7 @@
 
 #include "config.h"
 #include "wake.h"
+#include "wifi.h"
 
 static btstack_packet_callback_registration_t hci_event_cb;
 static bool stack_ready = false;
@@ -159,17 +160,26 @@ void ble_task() {
 
     // Web scanning is ACTIVE (requests scan responses, where most devices put
     // their name); the wake path only needs the MAC, so stay passive there.
-    if (want != scanning || (want && web != scan_is_active_mode)) {
+    //
+    // BUT active scanning transmits probe requests, which fight Wi-Fi
+    // association for airtime on the single shared CYW43 radio -- the main cause
+    // of slow/flaky joins, since the user is on the config page (web scan on)
+    // exactly when entering creds and connecting. So while Wi-Fi is connecting,
+    // drop to PASSIVE even for the web scan: the picker keeps seeing advertisers
+    // that broadcast a name, we just stop the probe-request TX until the join
+    // settles. The wake path is passive anyway and is never affected.
+    const bool active = web && !wifi_connecting();
+    if (want != scanning || (want && active != scan_is_active_mode)) {
         if (scanning) gap_stop_scan();
         if (want) {
             // 60 ms interval / 30 ms window (units of 0.625 ms)
-            gap_set_scan_parameters(web ? 1 : 0, 0x0060, 0x0030);
+            gap_set_scan_parameters(active ? 1 : 0, 0x0060, 0x0030);
             gap_start_scan();
         }
         scanning = want;
-        scan_is_active_mode = web;
+        scan_is_active_mode = active;
         printf("[BLE] scan %s%s\n", want ? "on" : "off",
-               want ? (web ? " (active)" : " (passive)") : "");
+               want ? (active ? " (active)" : " (passive)") : "");
     }
 }
 

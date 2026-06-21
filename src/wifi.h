@@ -23,6 +23,13 @@ void wifi_task();
 // True once the STA link is up AND a DHCP lease has been obtained.
 bool wifi_connected();
 
+// True while a connect spell is in progress (association/DHCP not yet complete).
+// Used to pause the config page's ACTIVE BLE scan during this window: active
+// scanning transmits probe requests that steal airtime from Wi-Fi association on
+// the single shared CYW43 radio, which is the main cause of slow/flaky joins.
+// The wake path's PASSIVE scan is never affected by this.
+bool wifi_connecting();
+
 // Human-readable status for the web UI, e.g. "off", "connecting",
 // "connected 192.168.1.77", "auth failed", "no network". Returns a pointer to
 // a static buffer (valid until the next call).

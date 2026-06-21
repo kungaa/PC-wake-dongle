@@ -58,6 +58,12 @@ else ()
 endif ()
 option(WAKE_DEBUG "Print wake-FSM transitions to UART (developer use)" OFF)
 
+# Wi-Fi regulatory domain for the STA (Wake-on-LAN path). Defaults to the USA
+# domain (channels 1-11, full active-scan power). Set to any CYW43_COUNTRY_*
+# macro for your locale, e.g. -DWIFI_COUNTRY=CYW43_COUNTRY_UK. Avoid
+# CYW43_COUNTRY_WORLDWIDE: it is the weak, passive-scan-everywhere default.
+set(WIFI_COUNTRY "CYW43_COUNTRY_USA" CACHE STRING "CYW43 Wi-Fi country code macro")
+
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
@@ -88,6 +94,17 @@ target_compile_definitions(pc-wake-dongle PRIVATE
         # netif (the Wake-on-LAN path). CYW43_LWIP=1 lets the cyw43_arch driver
         # own a Wi-Fi netif; the NCM netif is still added by hand in usb_net.cpp.
         CYW43_LWIP=1
+        # Wi-Fi regulatory domain for the STA. The SDK default is
+        # CYW43_COUNTRY_WORLDWIDE ('XX'), the conservative everywhere-safe
+        # superset: it forces passive scan on part of the 2.4 GHz band and caps
+        # TX power, which made STA association weak/intermittent. Any real
+        # country lights up channels 1-11 at full active-scan power; US is the
+        # default here. Override at build time with -DWIFI_COUNTRY=... using any
+        # CYW43_COUNTRY_* macro (e.g. CYW43_COUNTRY_UK). Channels 12-14 are not
+        # worth chasing: they are low-power/passive-scan in every regdomain, so
+        # a "more channels" country does not strengthen the band an AP on 1-11
+        # actually uses.
+        PICO_CYW43_ARCH_DEFAULT_COUNTRY_CODE=${WIFI_COUNTRY}
         ENABLE_SERIAL=${ENABLE_SERIAL_VALUE}
         ENABLE_VERBOSE=${ENABLE_VERBOSE_VALUE}
         PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0

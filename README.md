@@ -42,6 +42,11 @@ Wake-on-LAN magic packet to your PC whenever it would otherwise try to wake it
 off by default and configured entirely from the same web page. See
 [USER_GUIDE.md](USER_GUIDE.md) for setup and BIOS/OS requirements.
 
+> **Note:** the dongle shares one radio between Bluetooth and Wi-Fi, so joining
+> your Wi-Fi can take a few seconds and a couple of retries — this is expected.
+> Keep the dongle near your router. See
+> [Why Wi-Fi can be slow to connect](USER_GUIDE.md#why-wi-fi-can-be-slow-to-connect).
+
 ## What works / what doesn't
 
 - ✅ Devices that advertise over **Bluetooth LE**: Xbox Series controllers,
