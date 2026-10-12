@@ -84,6 +84,12 @@ add_executable(pc-wake-dongle
         ${PICO_TINYUSB_PATH}/lib/networking/dhserver.c
 )
 
+option(USE_RNDIS "Use RNDIS instead of CDC-NCM for the config network" OFF)
+if (USE_RNDIS)
+    target_sources(pc-wake-dongle PRIVATE ${PICO_TINYUSB_PATH}/lib/networking/rndis_reports.c)
+    target_compile_definitions(pc-wake-dongle PRIVATE USE_RNDIS=1)
+endif ()
+
 target_include_directories(pc-wake-dongle PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${PICO_TINYUSB_PATH}/lib/networking

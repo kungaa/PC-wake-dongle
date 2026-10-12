@@ -60,8 +60,12 @@ extern "C" {
 // HID instance 0: boot keyboard that delivers the wake keystroke.
 #define CFG_TUD_HID               1
 // CDC-NCM network interface carrying the onboard config web UI.
-#define CFG_TUD_NCM               1
-#define CFG_TUD_ECM_RNDIS         0
+// USE_RNDIS=1 swaps CDC-NCM for RNDIS (Windows' long-standing inbox driver).
+#ifndef USE_RNDIS
+#define USE_RNDIS 0
+#endif
+#define CFG_TUD_NCM               (USE_RNDIS ? 0 : 1)
+#define CFG_TUD_ECM_RNDIS         (USE_RNDIS ? 1 : 0)
 // Optional debug serial console.
 #define CFG_TUD_CDC               ENABLE_SERIAL
 #define CFG_TUD_MSC               0

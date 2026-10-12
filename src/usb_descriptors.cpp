@@ -12,15 +12,25 @@
 #ifndef ENABLE_SERIAL
 #define ENABLE_SERIAL 0
 #endif
+#ifndef USE_RNDIS
+#define USE_RNDIS 0
+#endif
 
 //--------------------------------------------------------------------+
 // Interface / endpoint / string layout
 //--------------------------------------------------------------------+
 
 enum {
+#if USE_RNDIS
+    // Windows' RNDIS driver expects the RNDIS function first in a composite.
+    ITF_NUM_NET = 0,
+    ITF_NUM_NET_DATA,
+    ITF_NUM_HID_KBD,
+#else
     ITF_NUM_HID_KBD = 0,
     ITF_NUM_NET,        // NCM control (IAD spans control + data)
     ITF_NUM_NET_DATA,
+#endif
 #if ENABLE_SERIAL
     ITF_NUM_CDC,
     ITF_NUM_CDC_DATA,
@@ -67,7 +77,11 @@ static tusb_desc_device_t const desc_device = {
 
     // TinyUSB's openly usable test VID/PID space -- this is a hobby device.
     .idVendor = 0xCafe,
+#if USE_RNDIS
+    .idProduct = 0x4021, // distinct PID so Windows doesn't reuse the NCM binding
+#else
     .idProduct = 0x4020,
+#endif
     .bcdDevice = 0x0100,
 
     .iManufacturer = STRID_MANUFACTURER,
@@ -123,7 +137,12 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t itf) {
 // Configuration Descriptor
 //--------------------------------------------------------------------+
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_NCM_DESC_LEN \
+#if USE_RNDIS
+#define NET_DESC_LEN TUD_RNDIS_DESC_LEN
+#else
+#define NET_DESC_LEN TUD_CDC_NCM_DESC_LEN
+#endif
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + NET_DESC_LEN \
                           + (ENABLE_SERIAL ? TUD_CDC_DESC_LEN : 0))
 
 uint8_t const desc_configuration[] = {
@@ -133,6 +152,15 @@ uint8_t const desc_configuration[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN,
                           TUSB_DESC_CONFIG_ATT_SELF_POWERED | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
 
+#if USE_RNDIS
+    // RNDIS: notif EP + bulk data EPs (same layout as TinyUSB's Windows example)
+    TUD_RNDIS_DESCRIPTOR(ITF_NUM_NET, STRID_NET, EPNUM_NET_NOTIF, 8,
+                         EPNUM_NET_OUT, EPNUM_NET_IN, 64),
+
+    // HID boot keyboard, 8-byte report, 10 ms polling
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID_KBD, 0, HID_ITF_PROTOCOL_KEYBOARD,
+                       sizeof(desc_hid_report_kbd), EPNUM_HID_KBD_IN, CFG_TUD_HID_EP_BUFSIZE, 10),
+#else
     // HID boot keyboard, 8-byte report, 10 ms polling
     TUD_HID_DESCRIPTOR(ITF_NUM_HID_KBD, 0, HID_ITF_PROTOCOL_KEYBOARD,
                        sizeof(desc_hid_report_kbd), EPNUM_HID_KBD_IN, CFG_TUD_HID_EP_BUFSIZE, 10),
@@ -140,6 +168,7 @@ uint8_t const desc_configuration[] = {
     // CDC-NCM: notif EP + bulk data EPs, MTU-sized segments
     TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET, STRID_MAC, EPNUM_NET_NOTIF, 64,
                            EPNUM_NET_OUT, EPNUM_NET_IN, 64, CFG_TUD_NET_MTU, 50, 0),
+#endif
 
 #if ENABLE_SERIAL
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
