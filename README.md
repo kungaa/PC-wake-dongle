@@ -106,12 +106,33 @@ cmake --build build
 ```
 
 Options: `ENABLE_SERIAL` (USB serial console), `ENABLE_VERBOSE`, `WAKE_DEBUG`
-(wake state machine tracing).
+(wake state machine tracing), `USE_RNDIS` (see below).
+
+#### `USE_RNDIS`: if the config network fails on Windows (Code 10)
+
+On some Windows machines the CDC-NCM config adapter shows up in Device
+Manager as "PC Wake Dongle Config Network" with a warning sign and
+*"This device cannot start. (Code 10) — The request failed due to a fatal
+device hardware error"*, so the config page is unreachable. Building with
+`-DUSE_RNDIS=ON` swaps CDC-NCM for RNDIS, which binds to Windows' inbox
+"Remote NDIS Compatible Device" driver instead:
+
+```bash
+cmake -S . -B build-rndis -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_RNDIS=ON
+cmake --build build-rndis
+```
+
+The RNDIS build puts the network function first (interfaces 0–1, which
+Windows' RNDIS driver expects in a composite device) and the HID wake
+keyboard at interface 2, and uses PID `0x4021` so Windows doesn't reuse a
+cached NCM driver binding. Wake behaviour, BLE scanning and the config page
+are unchanged. RNDIS is Windows-oriented; macOS doesn't support it natively,
+so keep the default NCM build there.
 
 ## How it's built
 
-- TinyUSB composite device: HID boot keyboard + CDC-NCM (+ CDC serial in
-  debug builds)
+- TinyUSB composite device: HID boot keyboard + CDC-NCM (or RNDIS with
+  `USE_RNDIS`) (+ CDC serial in debug builds)
 - BTstack (LE-only) passive scanning on the CYW43
 - lwIP (NO_SYS) over NCM with a tiny DHCP server, mDNS responder and httpd
   serving the config page from firmware — no internet, no drivers needed
