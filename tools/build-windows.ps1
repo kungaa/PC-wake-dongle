@@ -439,7 +439,7 @@ Ensure-PicoSdk
 $ncmFile = Join-Path $sdkPath 'lib/tinyusb/src/class/net/ncm_device.c'
 $ncmSource = [System.IO.File]::ReadAllText($ncmFile)
 
-foreach ($field in @('wNtbInDivisor', 'wNtbOutDivisor')) {
+foreach ($field in @('wNdbInDivisor', 'wNdbOutDivisor')) {
     $pattern = "(\.$field\s*=\s*)1(\s*,)"
     $matches = [regex]::Matches($ncmSource, $pattern)
 
