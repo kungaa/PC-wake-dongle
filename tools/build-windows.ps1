@@ -433,6 +433,26 @@ Ensure-ArmToolchain
 Ensure-HostCompiler
 Ensure-PicoSdk
 
+# Fix TinyUSB 0.20.0 CDC-NCM compatibility with Windows 11.
+# Windows UsbNcm.sys rejects NTB alignment divisors of 1 (Code 10).
+# See https://github.com/hathach/tinyusb/issues/3913
+$ncmFile = Join-Path $sdkPath 'lib/tinyusb/src/class/net/ncm_device.c'
+$ncmSource = [System.IO.File]::ReadAllText($ncmFile)
+
+foreach ($field in @('wNdbInDivisor', 'wNdbOutDivisor')) {
+    $pattern = "(\.$field\s*=\s*)1(\s*,)"
+    $matches = [regex]::Matches($ncmSource, $pattern)
+
+    if ($matches.Count -eq 1) {
+        $ncmSource = [regex]::Replace($ncmSource, $pattern, '${1}4${2}')
+    }
+    elseif ($ncmSource -notmatch "\.$field\s*=\s*4\s*,") {
+        throw "Cannot locate expected TinyUSB NCM divisor: $field"
+    }
+}
+
+[System.IO.File]::WriteAllText($ncmFile, $ncmSource)
+Ok 'TinyUSB Windows CDC-NCM compatibility fix applied.'
 # --- Locate / fetch the project source --------------------------------------
 Resolve-RepoRoot   # sets $script:RepoRoot
 if (-not $RepoRoot -or -not (Test-Ds5Checkout $RepoRoot)) {
