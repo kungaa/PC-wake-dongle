@@ -138,9 +138,8 @@ uint8_t const desc_configuration[] = {
                        sizeof(desc_hid_report_kbd), EPNUM_HID_KBD_IN, CFG_TUD_HID_EP_BUFSIZE, 10),
 
     // CDC-NCM: notif EP + bulk data EPs, MTU-sized segments
-    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET, STRID_MAC, EPNUM_NET_NOTIF, 64,
-                           EPNUM_NET_OUT, EPNUM_NET_IN, 64, CFG_TUD_NET_MTU, 50, 0),
-
+TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET, STRID_MAC, EPNUM_NET_NOTIF, 64,
+                       EPNUM_NET_OUT, EPNUM_NET_IN, 64, CFG_TUD_NET_MTU),
 #if ENABLE_SERIAL
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 #endif
